@@ -1,0 +1,48 @@
+Useelink 1 Gang Wall Switch
+
+{"NAME":"Useelink 1 Gang Wall Switch","GPIO":[544,0,0,0,0,0,0,0,32,224,0,0,0,0],"FLAG":0,"BASE":18}
+
+
+Useelink 2 Gang Wall Switch
+
+{"NAME":"Useelink 2 Gang Wall Switch","GPIO":[544,288,0,33,225,0,0,0,32,224,0,0,0,4704],"FLAG":0,"BASE":18}
+
+
+Useelink 3 Gang Wall Switch
+
+{"NAME":"Useelink 3 Gang Wall Switch","GPIO":[544,0,0,33,225,34,0,0,32,224,0,226,0,0],"FLAG":0,"BASE":18}
+
+
+
+Standard Options
+
+
+Backlog SetOption0 0; SetOption36 1; SetOption19 0; SetOption30 1; SetOption13 1; SetOption55 1
+
+Backlog SetOption0 0; SetOption36 1 // Prevent boot loops
+
+SetOption19 0 // Use Tasmota integration for autodiscovery (requires MQTT integration set up)
+
+SetOption30 1  // Autodiscover relay as light
+
+SetOption13 1 // Button press immediate action
+
+SetOption55 1 // Enable mDNS
+
+Device Grouping
+
+SetOption85 1  // Enable device groups - multicast
+
+SetOption88 1  // Enable individual device groups per relay
+
+DevGroupName1 stairs // Set the device group name for relay 1 - default is to use MQTT group topic
+
+DevGroupTie1 0 // Diasble device group for relay 1
+
+Main Bedroom Walk In Sensor rule
+
+Rule1 on Switch1#state=1 do Backlog Publish cmnd/tasmota_EEA51B/power on; RuleTimer1 30 endon on Rules#Timer=1 do Publish cmnd/tasmota_EEA51B/power off endon
+
+Living Room TV Bias
+
+Set D1 Mini module as a Generic (18) - D4 GPIO2 P9813 Clk, Rx GPIO3 P9813 Dat

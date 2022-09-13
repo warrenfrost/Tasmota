@@ -104,7 +104,8 @@ String GetBuildDateAndTime(void) {
   strcpy_P(MonthNamesEnglish, kMonthNamesEnglish);
   int month = (strstr(MonthNamesEnglish, smonth) -MonthNamesEnglish) /3 +1;
   snprintf_P(bdt, sizeof(bdt), PSTR("%d" D_YEAR_MONTH_SEPARATOR "%02d" D_MONTH_DAY_SEPARATOR "%02d" D_DATE_TIME_SEPARATOR "%s"), year, month, day, PSTR(__TIME__));
-  return String(bdt);  // 2017-03-07T11:08:02
+  //return String(bdt);  // 2017-03-07T11:08:02
+  return String(bdt) + " - Built by Wozza";
 }
 
 String GetMinuteTime(uint32_t minutes) {
