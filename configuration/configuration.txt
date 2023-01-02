@@ -13,6 +13,10 @@ Useelink 3 Gang Wall Switch
 {"NAME":"Useelink 3 Gang Wall Switch","GPIO":[544,0,0,33,225,34,0,0,32,224,0,226,0,0],"FLAG":0,"BASE":18}
 
 
+Binary Sensor (e.g. reed switch)
+
+Connect switch/button across key and ground pins. Use Generic template and GPIO0 as as switch 1. Use SetOption115 and SwitchMode1 15
+
 
 Standard Options
 
