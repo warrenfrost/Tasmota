@@ -829,23 +829,44 @@ void ResponseAppendFeatures(void)
     feature9 |= 0x00000001;  // xsns_98_sgp40.ino
 #endif
 #if defined(USE_I2C) && defined(USE_LUXV30B)
-    feature9 |= 0x00000002;
+    feature9 |= 0x00000002;  // xsns_99_luxv30b.ino
 #endif
-//    feature9 |= 0x00000004;
-//    feature9 |= 0x00000008;
-
-//    feature9 |= 0x00000010;
-//    feature9 |= 0x00000020;
-//    feature9 |= 0x00000040;
-//    feature9 |= 0x00000080;
-
-//    feature9 |= 0x00000100;
-//    feature9 |= 0x00000200;
-//    feature9 |= 0x00000400;
-//    feature9 |= 0x00000800;
-
-//    feature9 |= 0x00001000;
-//    feature9 |= 0x00002000;
+#if defined(USE_SPI) && defined(USE_CANSNIFFER)
+    feature9 |= 0x00000004;  // xsns_87_can_sniffer.ino
+#endif
+#if defined(USE_I2C) && defined(USE_QMC5883L)
+    feature9 |= 0x00000008;  // xsns_33_qmc5882l.ino
+#endif
+#if defined(USE_ENERGY_SENSOR) && defined(USE_MODBUS_ENERGY)
+    feature9 |= 0x00000010;  // xnrg_29_modbus.ino
+#endif
+#if defined(USE_SPI) && defined(USE_SHELLY_PRO)
+    feature9 |= 0x00000020;  // xdrv_88_esp32_shelly_pro.ino
+#endif
+#ifdef USE_DALI
+    feature9 |= 0x00000040;  // xdrv_89_esp32_dali.ino
+#endif
+#if defined(USE_LIGHT) && defined(USE_BP1658CJ)
+    feature9 |= 0x00000080;  // xlgt_10_bp1658cj.ino
+#endif
+#ifdef USE_DINGTIAN_RELAY
+    feature9 |= 0x00000100;  // xdrv_90_dingtian_relay.ino
+#endif
+#if defined(USE_I2C) && defined(USE_HMC5883L)
+    feature9 |= 0x00000200;  // xsns_101_hmc5883l.ino
+#endif
+#ifdef USE_LD2410
+    feature9 |= 0x00000400;  // xsns_102_ld2410.ino
+#endif
+#ifdef USE_ME007
+    feature9 |= 0x00000800;  // xsns_23_me007.ino
+#endif
+#if defined(USE_I2C) && defined(USE_DISPLAY) && defined(USE_DISPLAY_TM1650)
+    feature9 |= 0x00001000;  // xdsp_20_tm1650.ino
+#endif
+#if defined(USE_I2C) && defined(USE_PCA9632)
+    feature9 |= 0x00002000;
+#endif
 //    feature9 |= 0x00004000;
 //    feature9 |= 0x00008000;
 

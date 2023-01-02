@@ -52,6 +52,14 @@ keywords if then else endif, or, and are better readable for beginners (others m
 #endif
 #define MAXNVARS MAXVARS-MAXSVARS
 
+#ifdef USE_SML_M
+#ifndef NO_USE_SML_SCRIPT_CMD
+// allows several sml cmds from scripts, as well as access to sml registers
+#undef USE_SML_SCRIPT_CMD
+#define USE_SML_SCRIPT_CMD
+#endif
+#endif // USE_SML_M
+
 #ifndef MAXFILT
 #define MAXFILT 5
 #endif
@@ -76,11 +84,12 @@ keywords if then else endif, or, and are better readable for beginners (others m
 #define MAX_SARRAY_NUM 32
 #endif
 
+void Draw_jpeg(uint8_t *mem, uint16_t jpgsize, uint16_t xp, uint16_t yp, uint8_t scale);
 uint32_t EncodeLightId(uint8_t relay_id);
 uint32_t DecodeLightId(uint32_t hue_id);
 char *web_send_line(char mc, char *lp);
 int32_t web_send_file(char mc, char *file);
-
+char *Get_esc_char(char *cp, char *esc_chr);
 #define SPECIAL_EEPMODE_SIZE 6200
 
 #ifndef STASK_STACK
@@ -182,7 +191,7 @@ void Script_ticker4_end(void) {
 #endif
 
 #if defined(USE_SML_M) && defined (USE_SML_SCRIPT_CMD)
-extern uint8_t sml_json_enable;
+extern uint8_t sml_options;
 #endif
 
 #if defined(EEP_SCRIPT_SIZE) && !defined(ESP32)
@@ -438,6 +447,7 @@ struct SCRIPT_MEM {
     void *script_mem;
     uint16_t script_mem_size;
     uint8_t script_dprec;
+    char script_sepc;
     uint8_t script_lzero;
     uint8_t var_not_found;
     uint8_t glob_error;
@@ -467,6 +477,7 @@ struct SCRIPT_MEM {
     char *fast_script = 0;
     char *event_script = 0;
     char *html_script = 0;
+    char *teleperiod = 0;
     char *web_pages[10];
     uint32_t script_lastmillis;
     bool event_handeled = false;
@@ -499,7 +510,7 @@ void flt2char(float num, char *nbuff) {
   dtostrfd(num, glob_script_mem.script_dprec, nbuff);
 }
 // convert float to char with leading zeros
-void f2char(float num, uint32_t dprec, uint32_t lzeros, char *nbuff) {
+void f2char(float num, uint32_t dprec, uint32_t lzeros, char *nbuff, char dsep) {
   dtostrfd(num, dprec, nbuff);
   if (lzeros > 1) {
     // check leading zeros
@@ -520,6 +531,13 @@ void f2char(float num, uint32_t dprec, uint32_t lzeros, char *nbuff) {
       *cp=0;
       strcat(cpbuf,nbuff);
       strcpy(nbuff,cpbuf);
+    }
+  }
+  if (dsep != '.') {
+    for (uint16_t cnt = 0; cnt < strlen(nbuff); cnt++) {
+      if (nbuff[cnt] == '.') {
+        nbuff[cnt] = dsep;
+      }
     }
   }
 }
@@ -789,9 +807,12 @@ char *script;
                     // string vars
                     op++;
                     *snp_p ++= strings_p;
-                    while (*op!='\"') {
-                      if (*op==SCRIPT_EOL) break;
-                      *strings_p++ = *op++;
+                    while (*op != '\"') {
+                      if (*op == SCRIPT_EOL) break;
+                      char iob;
+                      op = Get_esc_char(op, &iob);
+                      //*strings_p++ = *op++;
+                      *strings_p++ = iob;
                     }
                     *strings_p++ = 0;
                     vtypes[vars].bits.is_string = 1;
@@ -970,6 +991,7 @@ char *script;
     glob_script_mem.numvars = vars;
     glob_script_mem.script_dprec = SCRIPT_FLOAT_PRECISION;
     glob_script_mem.script_lzero = 0;
+    glob_script_mem.script_sepc = '.';
     glob_script_mem.script_loglevel = LOG_LEVEL_INFO;
 
 
@@ -980,7 +1002,7 @@ char *script;
 
       } else {
         char string[32];
-        f2char(glob_script_mem.fvars[dvtp[count].index], glob_script_mem.script_dprec, glob_script_mem.script_lzero, string);
+        f2char(glob_script_mem.fvars[dvtp[count].index], glob_script_mem.script_dprec, glob_script_mem.script_lzero, string, '.');
         toLog(string);
       }
     }
@@ -1865,6 +1887,117 @@ if (hsv.S == 0) {
 }
 #endif //USE_LIGHT
 
+#ifdef ESP32
+#ifdef JPEG_PICTS
+#ifdef STREAM_JPEG_PICTS
+struct JPG_TASK {
+  char boundary[40];
+  bool draw;
+  uint8_t scale;
+  uint16_t xp;
+  uint16_t yp;
+  WiFiClient stream;
+  HTTPClient http;
+} jpg_task;
+
+// "e8b8c539-047d-4777-a985-fbba6edff11e"
+
+int32_t fetch_jpg(uint32_t sel, char *url, uint32_t xp, uint32_t yp, uint32_t scale) {
+  char hbuff[64];
+  int32_t httpCode = 0;
+  const char * headerKeys[] = {"Content-Type", "Content-Length"} ;
+  const size_t numberOfHeaders = 2;
+
+  switch (sel) {
+    case 0:
+      // open
+      jpg_task.boundary[0] = 0;
+      jpg_task.draw = false;
+      jpg_task.xp = xp;
+      jpg_task.yp = yp;
+      jpg_task.scale = scale;
+      sprintf(hbuff,"http://%s", url);
+      jpg_task.http.begin(jpg_task.stream, hbuff);
+      jpg_task.http.collectHeaders(headerKeys, numberOfHeaders);
+      httpCode = jpg_task.http.GET();
+      if (httpCode == HTTP_CODE_OK || httpCode == HTTP_CODE_MOVED_PERMANENTLY) {
+        String boundary = jpg_task.http.header(headerKeys[0]);
+        char *cp = strchr(boundary.c_str(), '=');
+        if (cp) {
+          strcpy(jpg_task.boundary,cp + 1);
+        }
+      } else {
+        AddLog(LOG_LEVEL_INFO,PSTR("HTTP error %d = %s"), httpCode, jpg_task.http.errorToString(httpCode).c_str());
+      }
+      return httpCode;
+      break;
+    case 1:
+      // close
+      jpg_task.stream.stop();
+      jpg_task.http.end();
+      break;
+    case 2:
+      // get next frame
+      /*Wc.client.print("--" BOUNDARY "\r\n");
+      Wc.client.printf("Content-Type: image/jpeg\r\n"
+        "Content-Length: %d\r\n"
+        "\r\n", static_cast<int>(_jpg_buf_len));
+        */
+      {
+        if (jpg_task.http.connected()) {
+          char inbuff[64];
+          memset(inbuff, 0, sizeof(inbuff));
+          jpg_task.stream.readBytesUntil('\n', inbuff, sizeof(inbuff));
+          if (inbuff[0] == '\r') {
+            memset(inbuff, 0, sizeof(inbuff));
+            jpg_task.stream.readBytesUntil('\n', inbuff, sizeof(inbuff));
+          }
+          //AddLog(LOG_LEVEL_INFO, PSTR("boundary = %s"), inbuff);
+          memset(inbuff, 0, sizeof(inbuff));
+          jpg_task.stream.readBytesUntil('\n', inbuff, sizeof(inbuff));
+          //AddLog(LOG_LEVEL_INFO, PSTR("type = %s"), inbuff);
+          memset(inbuff, 0, sizeof(inbuff));
+          jpg_task.stream.readBytesUntil('\n', inbuff, sizeof(inbuff));
+          //AddLog(LOG_LEVEL_INFO, PSTR("size = %s"), inbuff);
+          char *cp = strchr(inbuff, ':');
+          uint16_t size = 0;
+          if (cp) {
+            size = atoi(cp + 1);
+          }
+          jpg_task.stream.readBytesUntil('\n', inbuff, sizeof(inbuff));
+
+          if (size > 0) {
+            //AddLog(LOG_LEVEL_INFO, PSTR("size = %d"), size);
+            uint8_t *buff = (uint8_t *)special_malloc(size);
+            if (buff) {
+              jpg_task.stream.readBytes(buff, size);
+            }
+            if (jpg_task.draw) {
+              Draw_jpeg(buff, size, jpg_task.xp, jpg_task.yp, jpg_task.scale);
+            }
+            if (buff) {
+              free(buff);
+            }
+          }
+          return size;
+        }
+      }
+      break;
+    case 3:
+      // stop drawing
+      jpg_task.draw = false;
+      break;
+    case 4:
+      // resume drawing
+      jpg_task.draw = true;
+      break;
+  }
+  return 0;
+}
+#endif // STREAM_JPEG_PICTS
+#endif // JPEG_PICTS
+#endif // ESP32
+
 
 #ifdef USE_ANGLE_FUNC
 uint32_t pulse_time_hl;
@@ -1997,6 +2130,33 @@ char *isargs(char *lp, uint32_t isind) {
   return lp;
 }
 
+char *Get_esc_char(char *cp, char *esc_chr) {
+char iob = *cp;
+  if (iob == '\\') {
+    cp++;
+    if (*cp == 't') {
+      iob = '\t';
+    } else if (*cp == 'n') {
+      iob = '\n';
+    } else if (*cp == 'r') {
+      iob = '\r';
+    } else if (*cp == '0' && *(cp + 1) == 'x') {
+      cp += 2;
+      iob = strtol(cp, 0, 16);
+      cp++;
+    } else if (*cp == '\\') {
+      iob = '\\';
+    }
+     else {
+      cp--;
+    }
+  }
+  *esc_chr = iob;
+  cp++;
+  return cp;
+}
+
+
 char *isget(char *lp, char *sp, uint32_t isind, struct GVARS *gv) {
 float fvar;
   lp = GetNumericArgument(lp, OPER_EQU, &fvar, 0);
@@ -2061,29 +2221,9 @@ char *isvar(char *lp, uint8_t *vtype, struct T_INDEX *tind, float *fp, char *sp,
       lp++;
       while (*lp != '"') {
         if (*lp == 0 || *lp == SCRIPT_EOL) break;
-        uint8_t iob = *lp;
-        if (iob == '\\') {
-          lp++;
-          if (*lp == 't') {
-            iob = '\t';
-          } else if (*lp == 'n') {
-            iob = '\n';
-          } else if (*lp == 'r') {
-            iob = '\r';
-          } else if (*lp == '0' && *(lp+1) == 'x') {
-            lp += 2;
-            iob = strtol(lp, 0, 16);
-            lp++;
-          } else if (*lp == '\\') {
-            iob = '\\';
-          } else {
-            lp--;
-          }
-          if (sp) *sp++ = iob;
-        } else {
-          if (sp) *sp++ = iob;
-        }
-        lp++;
+        char iob;
+        lp = Get_esc_char(lp, &iob);
+        if (sp) *sp++ = iob;
       }
       if (sp) *sp = 0;
       *vtype = STR_RES;
@@ -2513,6 +2653,7 @@ chknext:
         }
 #endif //USE_SCRIPT_TASK
 #endif //ESP32
+
 #ifdef USE_ANGLE_FUNC
         if (!strncmp(lp, "cos(", 4)) {
           lp = GetNumericArgument(lp + 4, OPER_EQU, &fvar, gv);
@@ -2569,6 +2710,10 @@ extern void W8960_SetGain(uint8_t sel, uint16_t value);
           lp = GetNumericArgument(lp + 3, OPER_EQU, &fvar, gv);
           while (*lp==' ') lp++;
           glob_script_mem.script_lzero = fvar;
+          if (*lp == ',' || *lp == '.') {
+            glob_script_mem.script_sepc = *lp;
+            lp++;
+          }
           lp = GetNumericArgument(lp , OPER_EQU, &fvar, gv);
           while (*lp==' ') lp++;
           glob_script_mem.script_dprec = fvar;
@@ -3552,12 +3697,41 @@ extern void W8960_SetGain(uint8_t sel, uint16_t value);
 #endif // ESP32
         break;
 
+#ifdef ESP32
+#ifdef JPEG_PICTS
+#ifdef STREAM_JPEG_PICTS
+      case 'j':
+        if (!strncmp(lp, "jpg(", 4)) {
+          lp = GetNumericArgument(lp + 4, OPER_EQU, &fvar, 0);
+          uint8_t selector = fvar;
+          switch (selector) {
+            case 0:
+              // start streaming
+              char url[SCRIPT_MAXSSIZE];
+              lp = GetStringArgument(lp, OPER_EQU, url, 0);
+              float xp, yp, scale ;
+              lp = GetNumericArgument(lp, OPER_EQU, &xp, 0);
+              lp = GetNumericArgument(lp, OPER_EQU, &yp, 0);
+              lp = GetNumericArgument(lp, OPER_EQU, &scale, 0);
+              fvar = fetch_jpg(0, url, xp, yp, scale);
+              break;
+            default:
+              // other cmds
+              fvar = fetch_jpg(selector, 0, 0, 0, 0);
+              break;
+          }
+          goto nfuncexit;
+        }
+        break;
+#endif // STREAM_JPEG_PICTS
+#endif // JPEG_PICTS
+#endif // ESP32
+
 #ifdef USE_KNX
       case 'k':
         if (!strncmp(lp, "knx(", 4)) {
           float type;
           lp = GetNumericArgument(lp + 4, OPER_EQU, &type, gv);
-          SCRIPT_SKIP_SPACES
           lp = GetNumericArgument(lp, OPER_EQU, &fvar, gv);
           SCRIPT_SKIP_SPACES
           KnxSensor(type, fvar);
@@ -3919,6 +4093,10 @@ extern void W8960_SetGain(uint8_t sel, uint16_t value);
           }
           goto strexit;
         }
+        if (!strncmp(lp, "rax", 3)) {
+          TasmotaGlobal.no_autoexec = 0;
+          goto exit;
+        }
         break;
 
       case 's':
@@ -3979,7 +4157,13 @@ extern void W8960_SetGain(uint8_t sel, uint16_t value);
           lp = GetStringArgument(lp + 3, OPER_EQU, str, 0);
           SCRIPT_SKIP_SPACES
           char token[2];
-          token[0] = *lp++;
+          if (*lp == '\'') {
+            lp++;
+            lp = Get_esc_char(lp, token);
+            lp++;
+          } else {
+            token[0] = *lp++;
+          }
           token[1] = 0;
           SCRIPT_SKIP_SPACES
           lp = GetNumericArgument(lp, OPER_EQU, &fvar, gv);
@@ -4033,8 +4217,10 @@ extern void W8960_SetGain(uint8_t sel, uint16_t value);
           lp += 2;
           uint8_t dprec = glob_script_mem.script_dprec;
           uint8_t lzero = glob_script_mem.script_lzero;
+          char dsep = glob_script_mem.script_sepc;
           if (isdigit(*lp)) {
-            if (*(lp + 1) == '.') {
+            if (*(lp + 1) == '.' || *(lp + 1) == ',') {
+              dsep = *(lp + 1);
               lzero = *lp & 0xf;
               lp += 2;
               dprec = *lp & 0xf;
@@ -4046,7 +4232,7 @@ extern void W8960_SetGain(uint8_t sel, uint16_t value);
           }
           lp = GetNumericArgument(lp, OPER_EQU, &fvar, gv);
           char str[SCRIPT_MAXSSIZE];
-          f2char(fvar, dprec, lzero, str);
+          f2char(fvar, dprec, lzero, str, dsep);
           if (sp) strlcpy(sp, str, glob_script_mem.max_ssize);
           lp++;
           len = 0;
@@ -4132,8 +4318,18 @@ extern char *SML_GetSVal(uint32_t index);
           SCRIPT_SKIP_SPACES
           lp++;
           len = 0;
-          if (sp) strlcpy(sp, SML_GetSVal(fvar), glob_script_mem.max_ssize);
-          goto strexit;;
+          if (fvar > 0) {
+            if (sp) strlcpy(sp, SML_GetSVal(fvar), glob_script_mem.max_ssize);
+          } else {
+            char sbuff[SCRIPT_MAXSSIZE];
+            fvar = fabs(fvar);
+            if (fvar < 1) {
+              fvar = 1;
+            }
+            dtostrfd(SML_GetVal(fvar), glob_script_mem.script_dprec, sbuff);
+            if (sp) strlcpy(sp, sbuff, glob_script_mem.max_ssize);
+          }
+          goto strexit;
         }
         if (!strncmp(lp, "sml(", 4)) {
           float fvar1;
@@ -4188,7 +4384,7 @@ extern char *SML_GetSVal(uint32_t index);
           goto nfuncexit;
         }
         if (!strncmp(vname, "smlj", 4)) {
-          fvar = sml_json_enable;
+          fvar = sml_options;
           tind->index = SML_JSON_ENABLE;
           goto exit_settable;
         }
@@ -4738,7 +4934,7 @@ extern char *SML_GetSVal(uint32_t index);
           goto strexit;
         }
         if (!strncmp(vname, "topic", 5)) {
-          if (sp) strlcpy(sp, SettingsText(SET_MQTT_TOPIC), glob_script_mem.max_ssize);
+          if (sp) strlcpy(sp, TasmotaGlobal.mqtt_topic, glob_script_mem.max_ssize);
           goto strexit;
         }
 #ifdef USE_SCRIPT_TIMER
@@ -4853,6 +5049,16 @@ extern char *SML_GetSVal(uint32_t index);
           goto nfuncexit;
         }
 #endif
+        if (!strncmp(lp, "tc(", 3)) {
+          lp = GetNumericArgument(lp + 3, OPER_EQU, &fvar, gv);
+          lp++;
+          if (sp) {
+            sp[0] = fvar;
+            sp[1] = 0;
+          }
+          len = 0;
+          goto strexit;
+        }
         break;
       case 'u':
         if (!strncmp(vname, "uptime", 6)) {
@@ -4965,7 +5171,7 @@ extern char *SML_GetSVal(uint32_t index);
           goto exit;
         }
 #endif // USE_TTGO_WATCH
-#if defined(USE_FT5206) || defined(USE_XPT2046) || defined(USE_LILYGO47) || defined(USE_M5EPD47)
+#if defined(USE_FT5206) || defined(USE_XPT2046) || defined(USE_LILYGO47) || defined(USE_GT911)
         if (!strncmp(lp, "wtch(", 5)) {
           lp = GetNumericArgument(lp + 5, OPER_EQU, &fvar, gv);
           fvar = Touch_Status(fvar);
@@ -5446,6 +5652,7 @@ void Replace_Cmd_Vars(char *srcbuf, uint32_t srcsize, char *dstbuf, uint32_t dst
     uint16_t count;
     uint8_t vtype;
     uint8_t dprec = glob_script_mem.script_dprec;
+    char dsep = glob_script_mem.script_sepc;
     uint8_t lzero = glob_script_mem.script_lzero;
     float fvar;
     cp = srcbuf;
@@ -5460,7 +5667,8 @@ void Replace_Cmd_Vars(char *srcbuf, uint32_t srcsize, char *dstbuf, uint32_t dst
               dstbuf[count] = *cp++;
             } else {
               if (isdigit(*cp)) {
-                if (*(cp+1) == '.') {
+                if (*(cp + 1) == '.' || *(cp + 1) == ',') {
+                  dsep = *(cp + 1);
                   lzero = *cp & 0xf;
                   cp+=2;
                 }
@@ -5469,6 +5677,7 @@ void Replace_Cmd_Vars(char *srcbuf, uint32_t srcsize, char *dstbuf, uint32_t dst
               } else {
                 dprec = glob_script_mem.script_dprec;
                 lzero = glob_script_mem.script_lzero;
+                dsep = glob_script_mem.script_sepc;
               }
               if (*cp=='(') {
                 // math expression
@@ -5480,7 +5689,7 @@ void Replace_Cmd_Vars(char *srcbuf, uint32_t srcsize, char *dstbuf, uint32_t dst
                   glob_script_mem.glob_error = 0;
                   cp = GetStringArgument(slp, OPER_EQU, string, 0);
                 } else {
-                  f2char(fvar, dprec, lzero, string);
+                  f2char(fvar, dprec, lzero, string, dsep);
                 }
                 uint8_t slen = strlen(string);
                 if (count + slen < dstsize - 1) {
@@ -5494,7 +5703,7 @@ void Replace_Cmd_Vars(char *srcbuf, uint32_t srcsize, char *dstbuf, uint32_t dst
                   // found variable as result
                   if (vtype==NUM_RES || (vtype&STYPE)==0) {
                     // numeric result
-                    f2char(fvar, dprec, lzero, string);
+                    f2char(fvar, dprec, lzero, string, dsep);
                   } else {
                     // string result
                   }
@@ -5836,7 +6045,8 @@ int16_t retval;
   if (!glob_script_mem.scriptptr) {
     return -99;
   }
-  if (tasm_cmd_activ && tlen > 0) return 0;
+  if (tasm_cmd_activ && tlen >= 0) return 0;
+
   struct GVARS gv;
   gv.jo = 0;
   retval = Run_script_sub(type, tlen, &gv);
@@ -5851,7 +6061,7 @@ int16_t retval;
       return -99;
     }
 
-    if (tasm_cmd_activ && tlen>0) return 0;
+    if (tasm_cmd_activ && tlen >= 0) return 0;
 
     struct GVARS gv;
 
@@ -5871,9 +6081,16 @@ int16_t retval;
     return retval;
 }
 
+#define SCRIPT_LOOP_NEST 3
 int16_t Run_script_sub(const char *type, int8_t tlen, struct GVARS *gv) {
-    uint8_t vtype = 0, sindex, xflg, floop = 0, globvindex, fromscriptcmd = 0;
-    char *lp_next;
+    uint8_t vtype = 0, sindex, xflg, fromscriptcmd = 0;
+    int16_t globvindex;
+    // 22 bytes per nested loop
+    uint8_t floop[SCRIPT_LOOP_NEST] = {0, 0, 0};
+    int8_t loopdepth = -1;
+    char *lp_next[SCRIPT_LOOP_NEST];
+    char *cv_ptr[SCRIPT_LOOP_NEST];
+    float *cv_count[SCRIPT_LOOP_NEST], cv_max[SCRIPT_LOOP_NEST], cv_inc[SCRIPT_LOOP_NEST];
     int16_t globaindex, saindex;
     struct T_INDEX ind;
     uint8_t operand, lastop, numeric = 1, if_state[IF_NEST], if_exe[IF_NEST], if_result[IF_NEST], and_or, ifstck = 0;
@@ -5881,8 +6098,8 @@ int16_t Run_script_sub(const char *type, int8_t tlen, struct GVARS *gv) {
     if_result[ifstck] = 0;
     if_exe[ifstck] = 1;
     char cmpstr[SCRIPT_MAXSSIZE];
-    float *dfvar, *cv_count, cv_max, cv_inc;
-    char *cv_ptr;
+    float *dfvar;
+
     float fvar = 0, fvar1, sysvar, swvar;
     uint8_t section = 0, sysv_type = 0, swflg = 0;
 
@@ -5895,7 +6112,7 @@ int16_t Run_script_sub(const char *type, int8_t tlen, struct GVARS *gv) {
     }
 
     uint8_t check = 0;
-    if (tlen<0) {
+    if (tlen < 0) {
       tlen = abs(tlen);
       check = 1;
     }
@@ -5903,22 +6120,23 @@ int16_t Run_script_sub(const char *type, int8_t tlen, struct GVARS *gv) {
 
     while (1) {
         // check line
-        // skip leading spaces
-        startline:
-        SCRIPT_SKIP_SPACES
-        while (*lp == '\t') {lp++;}
+        // skip leading spaces and tabs
+startline:
+        while (*lp == '\t' || *lp == ' ') {
+          lp++;
+        }
         // skip empty line
         SCRIPT_SKIP_EOL
         // skip comment
-        if (*lp==';') goto next_line;
+        if (*lp == ';') goto next_line;
         if (!*lp) break;
 
         if (section) {
             // we are in section
-            if (*lp=='>') {
+            if (*lp == '>') {
                 return 0;
             }
-            if (*lp=='#') {
+            if (*lp == '#') {
                 return 0;
             }
             glob_script_mem.var_not_found = 0;
@@ -5935,59 +6153,59 @@ int16_t Run_script_sub(const char *type, int8_t tlen, struct GVARS *gv) {
 
             if (!strncmp(lp, "if", 2)) {
                 lp += 2;
-                if (ifstck<IF_NEST-1) ifstck++;
+                if (ifstck < IF_NEST - 1) ifstck++;
                 if_state[ifstck] = 1;
                 if_result[ifstck] = 0;
-                if (ifstck==1) if_exe[ifstck] = 1;
+                if (ifstck == 1) if_exe[ifstck] = 1;
                 else if_exe[ifstck] = if_exe[ifstck - 1];
                 and_or = 0;
-            } else if (!strncmp(lp, "then", 4) && if_state[ifstck]==1) {
+            } else if (!strncmp(lp, "then", 4) && if_state[ifstck] == 1) {
                 lp += 4;
                 if_state[ifstck] = 2;
                 if (if_exe[ifstck - 1]) if_exe[ifstck] = if_result[ifstck];
-            } else if (!strncmp(lp, "else", 4) && if_state[ifstck]==2) {
+            } else if (!strncmp(lp, "else", 4) && if_state[ifstck] == 2) {
                 lp += 4;
                 if_state[ifstck] = 3;
                 if (if_exe[ifstck - 1]) if_exe[ifstck] = !if_result[ifstck];
-            } else if (!strncmp(lp, "endif", 5) && if_state[ifstck]>=2) {
+            } else if (!strncmp(lp, "endif", 5) && if_state[ifstck] >= 2) {
                 lp += 5;
                 if (ifstck>0) {
                   if_state[ifstck] = 0;
                   ifstck--;
                 }
                 goto next_line;
-            } else if (!strncmp(lp, "or", 2) && if_state[ifstck]==1) {
+            } else if (!strncmp(lp, "or", 2) && if_state[ifstck] == 1) {
                 lp += 2;
                 and_or = 1;
-            } else if (!strncmp(lp, "and", 3) && if_state[ifstck]==1) {
+            } else if (!strncmp(lp, "and", 3) && if_state[ifstck] == 1) {
                 lp += 3;
                 and_or = 2;
             }
 
-            if (*lp=='{' && if_state[ifstck]==1) {
+            if (*lp == '{' && if_state[ifstck] == 1) {
               lp += 1; // then
               if_state[ifstck] = 2;
-              if (if_exe[ifstck - 1]) if_exe[ifstck]=if_result[ifstck];
-            } else if (*lp=='{' && if_state[ifstck]==3) {
+              if (if_exe[ifstck - 1]) if_exe[ifstck] = if_result[ifstck];
+            } else if (*lp == '{' && if_state[ifstck] == 3) {
               lp += 1; // after else
               //if_state[ifstck]=3;
-            } else if (*lp=='}' && if_state[ifstck]>=2) {
+            } else if (*lp == '}' && if_state[ifstck] >= 2) {
               lp++; // must check for else
               char *slp = lp;
               uint8_t iselse = 0;
-              for (uint8_t count = 0; count<8;count++) {
-                if (*lp=='}') {
+              for (uint8_t count = 0; count < 8; count++) {
+                if (*lp == '}') {
                   // must be endif
                   break;
                 }
                 if (!strncmp(lp, "else", 4)) {
                   // is before else, no endif
                   if_state[ifstck] = 3;
-                  if (if_exe[ifstck-1]) if_exe[ifstck]=!if_result[ifstck];
+                  if (if_exe[ifstck - 1]) if_exe[ifstck] =! if_result[ifstck];
                   lp += 4;
                   iselse = 1;
                   SCRIPT_SKIP_SPACES
-                  if (*lp=='{') lp++;
+                  if (*lp == '{') lp++;
                   break;
                 }
                 lp++;
@@ -5995,7 +6213,7 @@ int16_t Run_script_sub(const char *type, int8_t tlen, struct GVARS *gv) {
               if (!iselse) {
                 lp = slp;
                 // endif
-                if (ifstck>0) {
+                if (ifstck > 0) {
                   if_state[ifstck] = 0;
                   ifstck--;
                 }
@@ -6008,28 +6226,29 @@ int16_t Run_script_sub(const char *type, int8_t tlen, struct GVARS *gv) {
               // simple implementation, zero loop count not supported
               lp += 3;
               SCRIPT_SKIP_SPACES
-              lp_next = 0;
+              loopdepth++;
+              if (loopdepth >= SCRIPT_LOOP_NEST) {
+                loopdepth = SCRIPT_LOOP_NEST - 1;
+              }
+              lp_next[loopdepth] = 0;
               lp = isvar(lp, &vtype, &ind, 0, 0, gv);
-              if ((vtype!=VAR_NV) && (vtype&STYPE)==0) {
+              if ((vtype != VAR_NV) && (vtype & STYPE) == 0) {
                   // numeric var
                   uint8_t index = glob_script_mem.type[ind.index].index;
-                  cv_count = &glob_script_mem.fvars[index];
-                  SCRIPT_SKIP_SPACES
-                  lp = GetNumericArgument(lp, OPER_EQU, cv_count, 0);
-                  SCRIPT_SKIP_SPACES
-                  lp = GetNumericArgument(lp, OPER_EQU, &cv_max, 0);
-                  SCRIPT_SKIP_SPACES
-                  lp = GetNumericArgument(lp, OPER_EQU, &cv_inc, 0);
+                  cv_count[loopdepth] = &glob_script_mem.fvars[index];
+                  lp = GetNumericArgument(lp, OPER_EQU, cv_count[loopdepth], 0);
+                  lp = GetNumericArgument(lp, OPER_EQU, &cv_max[loopdepth], 0);
+                  lp = GetNumericArgument(lp, OPER_EQU, &cv_inc[loopdepth], 0);
                   //SCRIPT_SKIP_EOL
-                  cv_ptr = lp;
-                  if (*cv_count<=cv_max && cv_inc>0) {
+                  cv_ptr[loopdepth] = lp;
+                  if (*cv_count[loopdepth] <= cv_max[loopdepth] && cv_inc[loopdepth] > 0) {
                     // inc loop
-                    floop = 1;
+                    floop[loopdepth] = 1;
                   } else {
                     // dec loop
-                    floop = 2;
-                    if (cv_inc>0) {
-                      floop = 1;
+                    floop[loopdepth]  = 2;
+                    if (cv_inc[loopdepth] > 0) {
+                      floop[loopdepth] = 1;
                     }
                   }
               } else {
@@ -6037,23 +6256,40 @@ int16_t Run_script_sub(const char *type, int8_t tlen, struct GVARS *gv) {
                   toLogEOL("for error", lp);
               }
             } else if (!strncmp(lp, "next", 4)) {
-              lp_next = lp;
-              if (floop>0) {
-                // for next loop
-                *cv_count += cv_inc;
-                if (floop==1) {
-                  if (*cv_count<=cv_max) {
-                    lp = cv_ptr;
+getnext:
+              if (loopdepth >= 0) {
+                lp_next[loopdepth] = lp;
+                if (floop[loopdepth] > 0) {
+                  // for next loop
+                  *cv_count[loopdepth] += cv_inc[loopdepth];
+                  if (floop[loopdepth] == 1) {
+                    if (*cv_count[loopdepth] <= cv_max[loopdepth]) {
+                      lp = cv_ptr[loopdepth];
+                    } else {
+                      lp += 4;
+                      floop[loopdepth] = 0;
+                      loopdepth--;
+                      if (loopdepth < -1) {
+                        loopdepth = -1;
+                      }
+                    }
                   } else {
-                    lp += 4;
-                    floop = 0;
+                    if (*cv_count[loopdepth] >= cv_max[loopdepth]) {
+                      lp = cv_ptr[loopdepth];
+                    } else {
+                      lp += 4;
+                      floop[loopdepth] = 0;
+                      loopdepth--;
+                      if (loopdepth < -1) {
+                        loopdepth = -1;
+                      }
+                    }
                   }
                 } else {
-                  if (*cv_count>=cv_max) {
-                    lp = cv_ptr;
-                  } else {
-                    lp += 4;
-                    floop = 0;
+                  lp += 4;
+                  loopdepth--;
+                  if (loopdepth < -1) {
+                    loopdepth = -1;
                   }
                 }
               }
@@ -6064,7 +6300,7 @@ int16_t Run_script_sub(const char *type, int8_t tlen, struct GVARS *gv) {
               SCRIPT_SKIP_SPACES
               char *slp = lp;
               lp = GetNumericArgument(lp, OPER_EQU, &swvar, 0);
-              if (glob_script_mem.glob_error==1) {
+              if (glob_script_mem.glob_error == 1) {
                 // was string, not number
                 lp = slp;
                 // get the string
@@ -6079,7 +6315,7 @@ int16_t Run_script_sub(const char *type, int8_t tlen, struct GVARS *gv) {
               float cvar;
               if (!(swflg & 0x80)) {
                 lp = GetNumericArgument(lp, OPER_EQU, &cvar, 0);
-                if (swvar!=cvar) {
+                if (swvar != cvar) {
                   swflg = 2;
                 } else {
                   swflg = 1;
@@ -6093,20 +6329,20 @@ int16_t Run_script_sub(const char *type, int8_t tlen, struct GVARS *gv) {
                   swflg = 0x82;
                 }
               }
-            } else if (!strncmp(lp, "ends", 4) && swflg>0) {
+            } else if (!strncmp(lp, "ends", 4) && swflg > 0) {
               lp += 4;
               swflg = 0;
             }
-            if ((swflg & 3)==2) goto next_line;
+            if ((swflg & 3) == 2) goto next_line;
 
             SCRIPT_SKIP_SPACES
             //SCRIPT_SKIP_EOL
-            if (*lp==SCRIPT_EOL) {
+            if (*lp == SCRIPT_EOL) {
              goto next_line;
             }
 
             //toLogN(lp,16);
-            if (!if_exe[ifstck] && if_state[ifstck]!=1) goto next_line;
+            if (!if_exe[ifstck] && if_state[ifstck] != 1) goto next_line;
 
 #ifdef IFTHEN_DEBUG
             sprintf(tbuff, "stack=%d,exe=%d,state=%d,cmpres=%d execute line: ", ifstck, if_exe[ifstck], if_state[ifstck], if_result[ifstck]);
@@ -6137,23 +6373,28 @@ int16_t Run_script_sub(const char *type, int8_t tlen, struct GVARS *gv) {
               goto next_line;
             } else if (!strncmp(lp, "break", 5)) {
               lp += 5;
-              if (floop) {
-                // should break loop
-                if (lp_next) {
-                  lp = lp_next;
+              if (loopdepth >= 0) {
+                if (floop[loopdepth] ) {
+                  // should break loop
+                  if (lp_next[loopdepth]) {
+                    lp = lp_next[loopdepth];
+                  }
+                  floop[loopdepth]  = 0;
+                  goto getnext;
                 }
-                floop = 0;
               } else {
                 section = 99;
                 // leave immediately
+                goto next_line;
               }
-              goto next_line;
+
             } else if (!strncmp(lp, "dp", 2) && isdigit(*(lp + 2))) {
               lp += 2;
               // number precision
-              if (*(lp + 1)== '.') {
+              if (*(lp + 1) == '.' || *(lp + 1) == ',' ) {
+                glob_script_mem.script_sepc = *(lp + 1);
                 glob_script_mem.script_lzero = atoi(lp);
-                lp+=2;
+                lp += 2;
               }
               glob_script_mem.script_dprec = atoi(lp);
               goto next_line;
@@ -6190,7 +6431,7 @@ int16_t Run_script_sub(const char *type, int8_t tlen, struct GVARS *gv) {
               }
               SCRIPT_SKIP_SPACES
               uint8_t mode = 0;
-              if ((*lp=='I') || (*lp=='O') || (*lp=='P')) {
+              if ((*lp == 'I') || (*lp == 'O') || (*lp == 'P')) {
                 switch (*lp) {
                   case 'I':
                     mode = 0;
@@ -6207,10 +6448,10 @@ int16_t Run_script_sub(const char *type, int8_t tlen, struct GVARS *gv) {
                 lp = GetNumericArgument(lp, OPER_EQU, &fvar, 0);
                 mode = fvar;
               }
-              uint8_t pm=0;
-              if (mode==0) pm = INPUT;
-              if (mode==1) pm = OUTPUT;
-              if (mode==2) pm = INPUT_PULLUP;
+              uint8_t pm = 0;
+              if (mode == 0) pm = INPUT;
+              if (mode == 1) pm = OUTPUT;
+              if (mode == 2) pm = INPUT_PULLUP;
               pinMode(pinnr, pm);
               goto next_line;
             } else if (!strncmp(lp, "spin(", 5)) {
@@ -6240,16 +6481,16 @@ int16_t Run_script_sub(const char *type, int8_t tlen, struct GVARS *gv) {
 #ifdef USE_WS2812
             else if (!strncmp(lp, "ws2812(", 7)) {
               lp = isvar(lp + 7, &vtype, &ind, 0, 0, gv);
-              if (vtype!=VAR_NV) {
+              if (vtype != VAR_NV) {
                 SCRIPT_SKIP_SPACES
-                if (*lp!=')') {
+                if (*lp != ')') {
                   lp = GetNumericArgument(lp, OPER_EQU, &fvar, 0);
                 } else {
                   fvar = 0;
                 }
                 // found variable as result
                 uint8_t index = glob_script_mem.type[ind.index].index;
-                if ((vtype&STYPE)==0) {
+                if ((vtype & STYPE) == 0) {
                     // numeric result
                   if (glob_script_mem.type[ind.index].bits.is_filter) {
                     uint16_t len = 0;
@@ -6278,7 +6519,7 @@ int16_t Run_script_sub(const char *type, int8_t tlen, struct GVARS *gv) {
             else if (!strncmp(lp, "pwm", 3)) {
               lp += 3;
               uint8_t channel = 1;
-              if (*(lp+1)=='(') {
+              if (*(lp+1) == '(') {
                 channel = *lp & 0x0f;
 #ifdef ESP8266
                 if (channel > 5) {channel = 5;}
@@ -6289,7 +6530,7 @@ int16_t Run_script_sub(const char *type, int8_t tlen, struct GVARS *gv) {
                 if (channel < 1) {channel = 1;}
                 lp += 2;
               } else {
-                if (*lp=='(') {
+                if (*lp == '(') {
                   lp++;
                 } else {
                   goto next_line;
@@ -6298,7 +6539,7 @@ int16_t Run_script_sub(const char *type, int8_t tlen, struct GVARS *gv) {
               lp = GetNumericArgument(lp, OPER_EQU, &fvar, 0);
               SCRIPT_SKIP_SPACES
               float fvar1=4000;
-              if (*lp!=')') {
+              if (*lp != ')') {
                 lp = GetNumericArgument(lp, OPER_EQU, &fvar1, 0);
               }
               esp_pwm(fvar, fvar1, channel);
@@ -6340,7 +6581,7 @@ int16_t Run_script_sub(const char *type, int8_t tlen, struct GVARS *gv) {
 
 #if defined(USE_SENDMAIL) || defined(USE_ESP32MAIL)
             else if (!strncmp(lp, "mail", 4)) {
-              lp+=5;
+              lp += 5;
               //char tmp[256];
               char *tmp = (char*)malloc(256);
               if (tmp) {
@@ -6351,16 +6592,16 @@ int16_t Run_script_sub(const char *type, int8_t tlen, struct GVARS *gv) {
               goto next_line;
             }
 #endif
-            else if (!strncmp(lp,"=>",2) || !strncmp(lp,"->",2) || !strncmp(lp,"+>",2) || !strncmp(lp,"print",5)) {
+            else if (!strncmp(lp, "=>", 2) || !strncmp(lp, "->", 2) || !strncmp(lp, "+>", 2) || !strncmp(lp, "print", 5)) {
                 // execute cmd
                 uint8_t sflag = 0,pflg = 0,svmqtt,swll;
-                if (*lp=='p') {
+                if (*lp == 'p') {
                  pflg = 1;
                  lp += 5;
                 }
                 else {
-                  if (*lp=='-') sflag = 1;
-                  if (*lp=='+') sflag = 2;
+                  if (*lp == '-') sflag = 1;
+                  if (*lp == '+') sflag = 2;
                   lp += 2;
                 }
                 char *slp = lp;
@@ -6371,7 +6612,7 @@ int16_t Run_script_sub(const char *type, int8_t tlen, struct GVARS *gv) {
                   uint16_t count;
                   for (count = 0; count < glob_script_mem.cmdbuffer_size-2; count++) {
                     //if (*lp=='\r' || *lp=='\n' || *lp=='}') {
-                    if (!*lp || *lp=='\r' || *lp=='\n') {
+                    if (!*lp || *lp == '\r' || *lp == '\n') {
                         cmd[count] = 0;
                         break;
                     }
@@ -6455,12 +6696,13 @@ int16_t Run_script_sub(const char *type, int8_t tlen, struct GVARS *gv) {
                   if (gv) globaindex = gv->numind;
                   else globaindex = -1;
                   uint8_t index = glob_script_mem.type[ind.index].index;
-                  if ((vtype&STYPE)==0) {
+                  if ((vtype & STYPE) == 0) {
                       // numeric result
                       if (ind.bits.settable || ind.bits.is_filter) {
                         dfvar = &sysvar;
                         if (ind.bits.settable) {
                           sysv_type = ind.index;
+                          globvindex = -1;
                         } else {
                           sysv_type = 0;
                         }
@@ -6472,7 +6714,7 @@ int16_t Run_script_sub(const char *type, int8_t tlen, struct GVARS *gv) {
                       SCRIPT_SKIP_SPACES
                       lp = getop(lp, &lastop);
 #ifdef SCRIPT_LM_SUB
-                      if (*lp=='#') {
+                      if (*lp == '#') {
                         // subroutine
                         lp = eval_sub(lp, &fvar, 0);
                       } else {
@@ -6538,41 +6780,44 @@ int16_t Run_script_sub(const char *type, int8_t tlen, struct GVARS *gv) {
                               break;
                       }
                       // var was changed
-                      SetChanged(globvindex);
+                      if (globvindex >= 0) SetChanged(globvindex);
 #ifdef USE_SCRIPT_GLOBVARS
-                      if (glob_script_mem.type[globvindex].bits.global) {
-                        script_udp_sendvar(varname, dfvar, 0);
+                      if (globvindex >= 0 ) {
+                        if (glob_script_mem.type[globvindex].bits.global) {
+                          script_udp_sendvar(varname, dfvar, 0);
+                        }
                       }
 #endif //USE_SCRIPT_GLOBVARS
-                      if (glob_script_mem.type[globvindex].bits.is_filter) {
-                        if (globaindex >= 0) {
-                          Set_MFVal(glob_script_mem.type[globvindex].index, globaindex, *dfvar);
-                        } else {
-                          if (glob_script_mem.arres == 2) {
-                            // fetch var preset
-                            lp++;
-                            while (*lp && *lp != SCRIPT_EOL) {
-                              if (*lp == '}') {
-                                lp++;
-                                break;
+                      if (globvindex >= 0) {
+                        if (glob_script_mem.type[globvindex].bits.is_filter) {
+                          if (globaindex >= 0) {
+                            Set_MFVal(glob_script_mem.type[globvindex].index, globaindex, *dfvar);
+                          } else {
+                            if (glob_script_mem.arres == 2) {
+                              // fetch var preset
+                              lp++;
+                              while (*lp && *lp != SCRIPT_EOL) {
+                                if (*lp == '}') {
+                                  lp++;
+                                  break;
+                                }
+                                lp = GetNumericArgument(lp, OPER_EQU, &fvar, gv);
+                                Set_MFilter(glob_script_mem.type[globvindex].index, fvar);
                               }
-                              lp = GetNumericArgument(lp, OPER_EQU, &fvar, gv);
-                              Set_MFilter(glob_script_mem.type[globvindex].index, fvar);
-                            }
-                          }  else {
+                            }  else {
                               Set_MFilter(glob_script_mem.type[globvindex].index, *dfvar);
+                            }
                           }
                         }
                       }
-
                       if (sysv_type) {
                         switch (sysv_type) {
                           case SCRIPT_LOGLEVEL:
                             glob_script_mem.script_loglevel = *dfvar;
                             break;
                           case SCRIPT_TELEPERIOD:
-                            if (*dfvar<10) *dfvar = 10;
-                            if (*dfvar>300) *dfvar = 300;
+                            if (*dfvar < 10) *dfvar = 10;
+                            if (*dfvar > 300) *dfvar = 300;
                             Settings->tele_period = *dfvar;
                             break;
                           case SCRIPT_EVENT_HANDLED:
@@ -6589,7 +6834,7 @@ int16_t Run_script_sub(const char *type, int8_t tlen, struct GVARS *gv) {
                             break;
 #if defined(USE_SML_M) && defined (USE_SML_SCRIPT_CMD)
                           case SML_JSON_ENABLE:
-                            sml_json_enable = *dfvar;
+                            sml_options = *dfvar;
                             break;
 #endif
                         }
@@ -6605,7 +6850,7 @@ int16_t Run_script_sub(const char *type, int8_t tlen, struct GVARS *gv) {
                     SCRIPT_SKIP_SPACES
                     lp = getop(lp, &lastop);
 #ifdef SCRIPT_LM_SUB
-                    if (*lp=='#') {
+                    if (*lp == '#') {
                       // subroutine
                       lp = eval_sub(lp, 0, str);
                     } else {
@@ -6624,23 +6869,25 @@ int16_t Run_script_sub(const char *type, int8_t tlen, struct GVARS *gv) {
 #endif
                     if (!glob_script_mem.var_not_found) {
                       // var was changed
-                      SetChanged(globvindex);
+                      if (globvindex >= 0) SetChanged(globvindex);
 #ifdef USE_SCRIPT_GLOBVARS
-                      if (glob_script_mem.type[globvindex].bits.global) {
-                        script_udp_sendvar(varname, 0, str);
+                      if (globvindex >= 0) {
+                        if (glob_script_mem.type[globvindex].bits.global) {
+                          script_udp_sendvar(varname, 0, str);
+                        }
                       }
 #endif //USE_SCRIPT_GLOBVARS
-                      if (saindex>=0) {
-                        if (lastop==OPER_EQU) {
+                      if (saindex >= 0) {
+                        if (lastop == OPER_EQU) {
                           strlcpy(glob_script_mem.last_index_string[glob_script_mem.sind_num] + (saindex * glob_script_mem.max_ssize), str, glob_script_mem.max_ssize);
-                        } else if (lastop==OPER_PLSEQU) {
+                        } else if (lastop == OPER_PLSEQU) {
                           strncat(glob_script_mem.last_index_string[glob_script_mem.sind_num] + (saindex * glob_script_mem.max_ssize), str, glob_script_mem.max_ssize);
                         }
                         gv->strind = -1;
                       } else {
-                        if (lastop==OPER_EQU) {
+                        if (lastop == OPER_EQU) {
                           strlcpy(glob_script_mem.glob_snp + (sindex * glob_script_mem.max_ssize), str, glob_script_mem.max_ssize);
-                        } else if (lastop==OPER_PLSEQU) {
+                        } else if (lastop == OPER_PLSEQU) {
                           strncat(glob_script_mem.glob_snp + (sindex * glob_script_mem.max_ssize), str, glob_script_mem.max_ssize);
                         }
                       }
@@ -6649,7 +6896,7 @@ int16_t Run_script_sub(const char *type, int8_t tlen, struct GVARS *gv) {
 
             }
             SCRIPT_SKIP_SPACES
-            if (*lp=='{' && if_state[ifstck]==3) {
+            if (*lp == '{' && if_state[ifstck] == 3) {
               lp += 1; // else
               //if_state[ifstck]=3;
             }
@@ -6658,7 +6905,7 @@ int16_t Run_script_sub(const char *type, int8_t tlen, struct GVARS *gv) {
         } else {
             //Serial.printf(">> decode %s\n",lp );
             // decode line
-            if (*lp=='>' && tlen==1) {
+            if (*lp == '>' && tlen == 1) {
               // called from cmdline
               lp++;
               section = 1;
@@ -6686,7 +6933,7 @@ int16_t Run_script_sub(const char *type, int8_t tlen, struct GVARS *gv) {
                       numeric = 1;
                       glob_script_mem.glob_error = 0;
                       argptr = GetNumericArgument((char*)ctype + 1, OPER_EQU, &fparam, 0);
-                      if (glob_script_mem.glob_error==1) {
+                      if (glob_script_mem.glob_error == 1) {
                         // was string, not number
                         numeric = 0;
                         // get the string
@@ -6735,7 +6982,7 @@ int16_t Run_script_sub(const char *type, int8_t tlen, struct GVARS *gv) {
         // next line
     next_line:
         if (section == 99) return 0;
-        if (*lp==SCRIPT_EOL) {
+        if (*lp == SCRIPT_EOL) {
           lp++;
         } else {
           lp = strchr(lp, SCRIPT_EOL);
@@ -6843,7 +7090,8 @@ void ScripterEvery100ms(void) {
     if (ResponseLength()) {
       ResponseJsonStart();
       ResponseJsonEnd();
-      Run_Scripter(">T", 2, ResponseData());
+      //Run_Scripter(">T", 2, ResponseData());
+      if (glob_script_mem.teleperiod) Run_Scripter(glob_script_mem.teleperiod, 0, ResponseData());
     }
   }
   if (bitRead(Settings->rule_enabled, 0)) {
@@ -7335,6 +7583,7 @@ void set_callbacks() {
   if (Run_Scripter1(">F", -2, 0) == 99) {glob_script_mem.fast_script = glob_script_mem.section_ptr + 2;} else {glob_script_mem.fast_script = 0;}
   if (Run_Scripter1(">E", -2, 0) == 99) {glob_script_mem.event_script = glob_script_mem.section_ptr + 2;} else {glob_script_mem.event_script = 0;}
   if (Run_Scripter1(">C", -2, 0) == 99) {glob_script_mem.html_script = glob_script_mem.section_ptr + 2;} else {glob_script_mem.html_script = 0;}
+  if (Run_Scripter1(">T", -2, 0) == 99) {glob_script_mem.teleperiod = glob_script_mem.section_ptr + 2;} else {glob_script_mem.teleperiod = 0;}
 }
 
 void set_wpages(char *id, uint16_t index) {
@@ -7493,14 +7742,14 @@ else light_status += "true";
 light_status += ",";
 break;
 */
-
+String GetHueDeviceId(uint16_t id, uint8_t ep);
 
 void Script_HueStatus(String *response, uint16_t hue_devs) {
 
   if (hue_script[hue_devs].type=='p') {
     *response += FPSTR(SCRIPT_HUE_LIGHTS_STATUS_JSON2);
     response->replace("{j1", hue_script[hue_devs].name);
-    response->replace("{j2", GetHueDeviceId(hue_devs));
+    response->replace("{j2", GetHueDeviceId(hue_devs, 0));
     uint8_t pwr = glob_script_mem.fvars[hue_script[hue_devs].index[0] - 1];
     response->replace("{state}", (pwr ? "true" : "false"));
     return;
@@ -7574,7 +7823,7 @@ void Script_HueStatus(String *response, uint16_t hue_devs) {
 
   response->replace("{light_status}", light_status);
   response->replace("{j1", hue_script[hue_devs].name);
-  response->replace("{j2", GetHueDeviceId(hue_devs));
+  response->replace("{j2", GetHueDeviceId(hue_devs, 0));
 
 }
 
@@ -7973,7 +8222,7 @@ bool ScriptCommand(void) {
         float *fpd = 0;
         uint16_t alend;
         char *cp = get_array_by_name(lp, &fpd, &alend, 0);
-        if (fpd && cp) {
+        if (fpd && cp && (!strchr(lp, '[')) ) {
           // is array
           Response_P(PSTR("{\"script\":{\"%s\":["), lp);
           for (uint16_t cnt = 0; cnt < alend; cnt++) {
@@ -8011,7 +8260,7 @@ bool ScriptCommand(void) {
       Response_P(S_JSON_COMMAND_SVALUE, command, result.c_str());
 #ifdef DEBUG_MQTT_EVENT
     } else if (CMND_SUBTEST == command_code) {
-      XdrvMailbox.topic = (char*)"tele";
+      XdrvMailbox.topic = (char*)"stat/tasmota/SENSOR";
       ScriptMqttData();
       serviced = true;
 #endif
@@ -8042,90 +8291,10 @@ void dateTime(uint16_t* date, uint16_t* time) {
 
 
 #ifdef SUPPORT_MQTT_EVENT
-/*
-//#define DEBUG_MQTT_EVENT
-// parser object, source keys, delimiter, float result or NULL, string result or NULL, string size
-uint32_t JsonParsePath(JsonParserObject *jobj, const char *spath, char delim, float *nres, char *sres, uint32_t slen) {
-  uint32_t res = 0;
-  const char *cp = spath;
-#ifdef DEBUG_JSON_PARSE_PATH
-  AddLog(LOG_LEVEL_INFO, PSTR("JSON: parsing json key: %s from json: %s"), cp, jpath);
-#endif
-  JsonParserObject obj = *jobj;
-  JsonParserObject lastobj = obj;
-  char selem[32];
-  uint8_t aindex = 0;
-  String value = "";
-  while (1) {
-    // read next element
-    for (uint32_t sp=0; sp<sizeof(selem)-1; sp++) {
-      if (!*cp || *cp==delim) {
-        selem[sp] = 0;
-        cp++;
-        break;
-      }
-      selem[sp] = *cp++;
-    }
-#ifdef DEBUG_JSON_PARSE_PATH
-    AddLog(LOG_LEVEL_INFO, PSTR("JSON: cmp current key: %s"), selem);
-#endif
-    // check for array
-    char *sp = strchr(selem,'[');
-    if (sp) {
-      *sp = 0;
-      aindex = atoi(sp+1);
-    }
 
-    // now check element
-    obj = obj[selem];
-    if (!obj.isValid()) {
-#ifdef DEBUG_JSON_PARSE_PATH
-      AddLog(LOG_LEVEL_INFO, PSTR("JSON: obj invalid: %s"), selem);
-#endif
-      JsonParserToken tok = lastobj[selem];
-      if (tok.isValid()) {
-        if (tok.isArray()) {
-          JsonParserArray array = JsonParserArray(tok);
-          value = array[aindex].getStr();
-          if (array.isNum()) {
-            if (nres) *nres=tok.getFloat();
-            res = 1;
-          } else {
-            res = 2;
-          }
-        } else {
-          value = tok.getStr();
-          if (tok.isNum()) {
-            if (nres) *nres=tok.getFloat();
-            res = 1;
-          } else {
-            res = 2;
-          }
-        }
-
-      }
-#ifdef DEBUG_JSON_PARSE_PATH
-      AddLog(LOG_LEVEL_INFO, PSTR("JSON: token invalid: %s"), selem);
-#endif
-      break;
-    }
-    if (obj.isObject()) {
-      lastobj = obj;
-      continue;
-    }
-    if (!*cp) break;
-  }
-  if (sres) {
-    strlcpy(sres,value.c_str(), slen);
-  }
-  return res;
-
-}
-*/
 #ifndef MQTT_EVENT_MSIZE
 #define MQTT_EVENT_MSIZE 256
 #endif // MQTT_EVENT_MSIZE
-
 
 
 /********************************************************************************************/
@@ -8138,8 +8307,7 @@ uint32_t JsonParsePath(JsonParserObject *jobj, const char *spath, char delim, fl
  *      true      - The message is consumed.
  *      false     - The message is not in our list.
  */
-bool ScriptMqttData(void)
-{
+bool ScriptMqttData(void) {
   bool serviced = false;
   //toLog(">>> 1");
   //toLog(XdrvMailbox.data);
@@ -8147,7 +8315,7 @@ bool ScriptMqttData(void)
     return false;
   }
   String sTopic = XdrvMailbox.topic;
-  String sData = XdrvMailbox.data;
+  String buData = XdrvMailbox.data;
 
 #ifdef DEBUG_MQTT_EVENT
     AddLog(LOG_LEVEL_INFO, PSTR("Script: MQTT Topic %s, Event %s"), XdrvMailbox.topic, XdrvMailbox.data);
@@ -8158,6 +8326,8 @@ bool ScriptMqttData(void)
   for (uint32_t index = 0; index < subscriptions.size(); index++) {
     event_item = subscriptions.get(index);
     uint8_t json_valid = 0;
+
+    String sData = buData;
 
 #ifdef DEBUG_MQTT_EVENT
     AddLog(LOG_LEVEL_INFO, PSTR("Script: Match MQTT message Topic %s with subscription topic %s and key %s"), sTopic.c_str(), event_item.Topic.c_str(),event_item.Key.c_str());
@@ -8990,7 +9160,7 @@ uint16_t cipos = 0;
     if (*lp == ')' || *lp == 0) break;
     char *lp1 = lp;
     float sysvar;
-    lp=isvar(lp, &vtype, &ind, &sysvar, 0, 0);
+    lp = isvar(lp, &vtype, &ind, &sysvar, 0, 0);
     if (vtype != VAR_NV) {
       SCRIPT_SKIP_SPACES
       uint8_t index = glob_script_mem.type[ind.index].index;
@@ -9739,12 +9909,12 @@ exgc:
           lp++;
           strcpy_P(stacked,"true");
         }
-        if (*lp=='2') {
+        if (*lp == '2') {
           lp++;
           nanum = 2;
           y2f = 1;
         }
-        if (*lp=='t') {
+        if (*lp == 't') {
           lp++;
           tonly = 1;
         }
@@ -9763,6 +9933,7 @@ exgc:
             if (!ind.bits.constant && glob_script_mem.type[ind.index].bits.is_filter) {
               // is 1. array
               lp = slp;
+              max_entries = 0;
             }
           }
         }
@@ -9790,7 +9961,7 @@ exgc:
         // we know how many arrays and the number of entries
         //Serial.printf("arrays %d\n",anum);
         //Serial.printf("entries %d\n",entries);
-        if (gs_ctype=='T') {
+        if (gs_ctype == 'T') {
           if (anum && !(entries & 1)) {
             WSContentSend_P(SCRIPT_MSG_GTABLEa);
             char label[SCRIPT_MAXSSIZE];
@@ -9798,7 +9969,7 @@ exgc:
             SCRIPT_SKIP_SPACES
             char lab2[SCRIPT_MAXSSIZE];
             lab2[0] = 0;
-            if (*lp!=')') {
+            if (*lp != ')') {
               lp = GetStringArgument(lp, OPER_EQU, lab2, 0);
               WSContentSend_P(SCRIPT_MSG_GTABLEe);
             } else {
@@ -9849,6 +10020,7 @@ exgc:
           //goto nextwebline;
         }
       } else {
+
         // we need to fetch the labels now
         WSContentSend_P(SCRIPT_MSG_GTABLEa);
         lp = gc_send_labels(lp, anum);
@@ -9874,13 +10046,15 @@ exgc:
             hmflg = 1;
             cp++;
           }
+          // cnth2016/240
+
           //todflg=atoi(&label[3]);
           todflg = strtol(cp, &cp, 10);
           if (!hmflg) {
             if (todflg >= entries) todflg = entries - 1;
             if (todflg < 0) todflg = 0;
           }
-          if (*cp=='/') {
+          if (*cp == '/') {
             cp++;
             divflg = strtol(cp, &cp, 10);
           }
@@ -9900,7 +10074,6 @@ exgc:
           divflg = entries / segments;
           if (!divflg) divflg = 1;
         }
-
         uint32_t aind = ipos;
         if (aind >= entries) aind = entries - 1;
         for (uint32_t cnt = 0; cnt < entries; cnt++) {
@@ -9943,7 +10116,7 @@ exgc:
             } else {
               fval = fp[cnt];
             }
-            f2char(fval, glob_script_mem.script_dprec, glob_script_mem.script_lzero, acbuff);
+            f2char(fval, glob_script_mem.script_dprec, glob_script_mem.script_lzero, acbuff, '.');
             WSContentSend_P("%s", acbuff);
             if (ind < anum - 1) { WSContentSend_P(","); }
           }
@@ -11042,7 +11215,7 @@ void script_add_subpage(uint8_t num) {
 
 
 
-bool Xdrv10(uint8_t function)
+bool Xdrv10(uint32_t function)
 {
   bool result = false;
   glob_script_mem.event_handeled = false;
@@ -11252,7 +11425,8 @@ bool Xdrv10(uint8_t function)
     case FUNC_TELEPERIOD_RULES_PROCESS:
       if (bitRead(Settings->rule_enabled, 0)) {
         if (ResponseLength()) {
-          Run_Scripter(">T", 2, ResponseData());
+          //Run_Scripter(">T", 2, ResponseData());
+          if (glob_script_mem.teleperiod) Run_Scripter(glob_script_mem.teleperiod, 0, ResponseData());
         }
       }
       break;

@@ -1159,11 +1159,14 @@ bool RulesMqttData(void)
   }
   bool serviced = false;
   String sTopic = XdrvMailbox.topic;
-  String sData = XdrvMailbox.data;
+  String buData = XdrvMailbox.data;
   //AddLog(LOG_LEVEL_DEBUG, PSTR("RUL: MQTT Topic %s, Event %s"), XdrvMailbox.topic, XdrvMailbox.data);
   MQTT_Subscription event_item;
   //Looking for matched topic
   for (uint32_t index = 0; index < subscriptions.size(); index++) {
+
+    String sData = buData;
+
     event_item = subscriptions.get(index);
 
     //AddLog(LOG_LEVEL_DEBUG, PSTR("RUL: Match MQTT message Topic %s with subscription topic %s"), sTopic.c_str(), event_item.Topic.c_str());
@@ -1458,7 +1461,7 @@ bool findNextVariableValue(char * &pVarname, float &value)
   } else if (sVarName.startsWith(F("TIMER"))) {
     uint32_t index = sVarName.substring(5).toInt();
     if (index > 0 && index <= MAX_TIMERS) {
-      value = Settings->timer[index -1].time;
+      value = TimerGetTimeOfDay(index -1);
     }
 #if defined(USE_SUNRISE)
   } else if (sVarName.equals(F("SUNRISE"))) {
@@ -2441,7 +2444,7 @@ float map_double(float x, float in_min, float in_max, float out_min, float out_m
  * Interface
 \*********************************************************************************************/
 
-bool Xdrv10(uint8_t function)
+bool Xdrv10(uint32_t function)
 {
   bool result = false;
 

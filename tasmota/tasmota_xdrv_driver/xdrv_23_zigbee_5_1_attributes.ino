@@ -264,6 +264,28 @@ EF00_0372,last_irrigation_duration
 
 */
 
+void Z_setString(char*& attr, const char * str) {
+  if (nullptr == str)  { str = PSTR(""); }    // nullptr is considered empty string
+  size_t str_len = strlen(str);
+
+  if ((nullptr == attr) && (0 == str_len)) { return; } // if both empty, don't do anything
+  if (attr) {
+    // we already have a value
+    if (strcmp(attr, str) != 0) {
+      // new value
+      free(attr);      // free previous value
+      attr = nullptr;
+    } else {
+      return;        // same value, don't change anything
+    }
+  }
+  if (str_len) {
+    if (str_len > 31) { str_len = 31; }
+    attr = (char*) malloc(str_len + 1);
+    strlcpy(attr, str, str_len + 1);
+  }
+}
+
 //
 //
 // Class for a single attribute from a plugin
@@ -275,24 +297,34 @@ public:
   Z_plugin_attribute(void) :
     type(Zunk),
     multiplier(1), divider(1), base(0),
-    cluster(0xFFFF), attribute(0xFFFF), manuf(0)
+    cluster(0xFFFF), attribute(0xFFFF), manuf(0),
+    name(nullptr)
     {};
+  
+  ~Z_plugin_attribute(void) {
+    if (name != nullptr) { free((void*)name); }
+  }
 
-  void set(uint16_t cluster, uint16_t attribute, const char *name, uint8_t type = Zunk) {
+  inline void setName(const char *_name) {
+    Z_setString(this->name, _name);
+  }
+
+  void set(uint16_t cluster, uint16_t attribute, const char *_name, uint8_t type = Zunk) {
     this->cluster = cluster;
     this->attribute = attribute;
+    Z_setString(this->name, _name);
     this->name = name;
     this->type = type;
   }
 
   uint8_t       type;             // zigbee type, Zunk by default
-  int8_t        multiplier;       // multiply by x (ignore if 0 or 1)
-  int8_t        divider;          // divide by x (ignore if 0 or 1)
+  uint16_t      multiplier;       // multiply by x (ignore if 0 or 1)
+  uint16_t      divider;          // divide by x (ignore if 0 or 1)
   int16_t       base;             // add x (ignore if 0)
   uint16_t      cluster;          // cluster number
   uint16_t      attribute;        // attribute number
   uint16_t      manuf;            // manufacturer code, 0 if none
-  String        name;             // name of attribute once converted
+  char *        name;             // name of attribute once converted
 };
 
 //
@@ -322,8 +354,8 @@ public:
   uint16_t      attribute;        // attribute to match
   uint16_t      new_cluster;      // replace with this cluster
   uint16_t      new_attribute;    // replace with this attribute
-  int8_t        multiplier;       // multiply by x (ignore if 0 or 1)
-  int8_t        divider;          // divide by x (ignore if 0 or 1)
+  uint16_t      multiplier;       // multiply by x (ignore if 0 or 1)
+  uint16_t      divider;          // divide by x (ignore if 0 or 1)
   int16_t       base;           // add x (ignore if 0)
 };
 
@@ -337,28 +369,62 @@ public:
 
   Z_plugin_matcher(void) {};
 
-  inline void setModelManuf(const char *_model, const char *_manuf) {
-    model = (const char*)_model;
-    manufacturer = (const char*)_manuf;
+  inline void setModel(const char *_model) {
+    Z_setString(this->model, _model);
+  }
+
+
+  inline void setManuf(const char *_manuf) {
+    Z_setString(this->manufacturer, _manuf);
+  }
+
+  ~Z_plugin_matcher(void) {
+    if (model) { free((void*)model); }
+    if (manufacturer) { free((void*)manufacturer); }
+  }
+
+  // check if a matches b, return true if so
+  //
+  // Special behavior:
+  // - return true if `a` is empty or null
+  // - return false if `b` is null
+  // - matches start of `a` if `a` ends with `'*'`
+  // - exact match otherwise
+  static bool matchStar(const char *_a, const char *_b) {
+    if (_a == nullptr || *_a == '\0') { return true; }
+    if (_b == nullptr) { return false; }
+
+    const char *a = _a;
+    const char *b = _b;
+    while (1) {
+      if (a[0] == '*' && a[1] == '\0') {  // pattern ends with '*'
+        return true;    // matches worked until now, accept match
+      }
+      if (*a != *b) {
+        return false;
+      }
+      if (*a == '\0') {
+        return true;
+      }
+      a++;
+      b++;
+    }
   }
 
   bool match(const char *match_model, const char *match_manuf) const {
     bool match = true;
-    if (model.length() > 0) {
-      if (!model.equals(match_model)) {
-        match = false;
-      }
+    if (!matchStar(model, match_model)) {
+      match = false;
     }
-    if (manufacturer.length() > 0) {
-      if (!manufacturer.equals(match_manuf)) {
+    if (!matchStar(manufacturer, match_manuf)) {
         match = false;
-      }
     }
+    // AddLog(LOG_LEVEL_DEBUG, ">match device(%s, %s) compared to (%s, %s) = %i", match_model, match_manuf, model ? model : "", manufacturer ? manufacturer : "", match);
     return match;
   }
 
-  String        model;
-  String        manufacturer;
+  char *        model = nullptr;
+  char *        manufacturer = nullptr;
 };
 
 //
@@ -443,7 +509,7 @@ const Z_plugin_attribute * Z_plugin_templates::matchAttributeByName(const char *
       if (mtch.match(model, manufacturer)) {
         // got a match, apply template
         for (const Z_plugin_attribute & attr : attributes) {
-          if (attr.name.equals(name)) {
+          if (0 == strcasecmp_P(name, attr.name ? attr.name : "")) {
             return &attr;
           }
         }
@@ -559,26 +625,32 @@ const Z_AttributeConverter Z_PostProcess[] PROGMEM = {
   //{ Zmap8,    Cx0005, 0x0004,  (NameSupport),           Cm1, 0 },
 
   // On/off cluster
-  { Zbool,    Cx0006, 0x0000,  Z_(Power),             Cm1 + Z_EXPORT_DATA, Z_MAPPING(Z_Data_OnOff, power) },
-  { Zenum8,   Cx0006, 0x4003,  Z_(StartUpOnOff),      Cm1, 0 },
-  { Zbool,    Cx0006, 0x8000,  Z_(Power),             Cm1, 0 },   // See 7280
-  { Zbool,    Cx0006, 0x4000,  Z_(OnOff),           Cm1, 0 },
-  { Zuint16,  Cx0006, 0x4001,  Z_(OnTime),           Cm1, 0 },
-  { Zuint16,  Cx0006, 0x4002,  Z_(OffWaitTime),           Cm1, 0 },
+  { Zbool,    Cx0006, 0x0000,  Z_(Power),               Cm1 + Z_EXPORT_DATA, Z_MAPPING(Z_Data_OnOff, power) },
+  { Zenum8,   Cx0006, 0x4003,  Z_(StartUpOnOff),        Cm1, 0 },
+  { Zbool,    Cx0006, 0x8000,  Z_(Power),               Cm1, 0 },   // See 7280
+  { Zbool,    Cx0006, 0x4000,  Z_(OnOff),               Cm1, 0 },
+  { Zuint16,  Cx0006, 0x4001,  Z_(OnTime),              Cm1, 0 },
+  { Zuint16,  Cx0006, 0x4002,  Z_(OffWaitTime),         Cm1, 0 },
 
   // On/Off Switch Configuration cluster
   { Zenum8,   Cx0007, 0x0000,  Z_(SwitchType),           Cm1, 0 },
   { Zenum8,   Cx0007, 0x0010,  Z_(SwitchActions),        Cm1, 0 },
 
   // Level Control cluster
-  { Zuint8,   Cx0008, 0x0000,  Z_(Dimmer),               Cm1 + Z_EXPORT_DATA, Z_MAPPING(Z_Data_Light, dimmer) },
-  { Zuint16,  Cx0008, 0x0001,  Z_(DimmerRemainingTime),  Cm1, 0 },
-  { Zmap8,    Cx0008, 0x000F,  Z_(DimmerOptions),        Cm1, 0 },
+  { Zuint8,   Cx0008, 0x0000,  Z_(Dimmer),                Cm1 + Z_EXPORT_DATA, Z_MAPPING(Z_Data_Light, dimmer) },
+  { Zuint16,  Cx0008, 0x0001,  Z_(DimmerRemainingTime),   Cm1, 0 },
+  { Zuint8,   Cx0008, 0x0002,  Z_(DimmerMinLevel),        Cm1, 0 },
+  { Zuint8,   Cx0008, 0x0003,  Z_(DimmerMaxLevel),        Cm1, 0 },
+  { Zuint16,  Cx0008, 0x0004,  Z_(DimmerCurrentFrequency),Cm1, 0 },
+  { Zuint16,  Cx0008, 0x0005,  Z_(DimmerMinFrequency),    Cm1, 0 },
+  { Zuint16,  Cx0008, 0x0006,  Z_(DimmerMaxFrequency),    Cm1, 0 },
   { Zuint16,  Cx0008, 0x0010,  Z_(OnOffTransitionTime),   Cm1, 0 },
-  { Zuint8,   Cx0008, 0x0011,  Z_(OnLevel),              Cm1, 0 },
-  { Zuint16,  Cx0008, 0x0012,  Z_(OnTransitionTime),     Cm1, 0 },
-  { Zuint16,  Cx0008, 0x0013,  Z_(OffTransitionTime),    Cm1, 0 },
-  { Zuint16,  Cx0008, 0x0014,  Z_(DefaultMoveRate),      Cm1, 0 },
+  { Zuint8,   Cx0008, 0x0011,  Z_(OnLevel),               Cm1, 0 },
+  { Zuint16,  Cx0008, 0x0012,  Z_(OnTransitionTime),      Cm1, 0 },
+  { Zuint16,  Cx0008, 0x0013,  Z_(OffTransitionTime),     Cm1, 0 },
+  { Zuint16,  Cx0008, 0x0014,  Z_(DefaultMoveRate),       Cm1, 0 },
+  { Zmap8,    Cx0008, 0x000F,  Z_(DimmerOptions),         Cm1, 0 },
+  { Zuint8,   Cx0008, 0x4000,  Z_(DimmerStartUpLevel),    Cm1, 0 },
 
   // Alarms cluster
   { Zuint16,  Cx0009, 0x0000,  Z_(AlarmCount),           Cm1, 0 },
@@ -660,7 +732,7 @@ const Z_AttributeConverter Z_PostProcess[] PROGMEM = {
   { Zstring,  Cx000F, 0x002E,  Z_(BinaryInInactiveText),Cm1, 0 },
   { Zbool,    Cx000F, 0x0051,  Z_(BinaryInOutOfService),Cm1, 0 },
   { Zenum8,   Cx000F, 0x0054,  Z_(BinaryInPolarity),    Cm1, 0 },
-  { Zstring,  Cx000F, 0x0055,  Z_(BinaryInValue),       Cm1, 0 },
+  { Zbool,    Cx000F, 0x0055,  Z_(BinaryInValue),       Cm1, 0 },
   // { 0xFF, Cx000F, 0x0057,  (BinaryInPriorityArray),Cm1, 0 },
   { Zenum8,   Cx000F, 0x0067,  Z_(BinaryInReliability), Cm1, 0 },
   { Zmap8,    Cx000F, 0x006F,  Z_(BinaryInStatusFlags), Cm1, 0 },
@@ -747,6 +819,7 @@ const Z_AttributeConverter Z_PostProcess[] PROGMEM = {
   { Zuint16,  Cx0020, 0x0006,  Z_(FastPollTimeoutMax),   Cm1, 0 },
 
   // Green Power
+  // Server attributes
   { Zuint8,   Cx0021, 0x0000,  Z_(MaxSinkTableEntries),  Cm1, 0 },
   { Zoctstr16,Cx0021, 0x0001,  Z_(SinkTable),            Cm1, 0 },
   { Zmap8,    Cx0021, 0x0002,  Z_(CommunicationMode),    Cm1, 0 },
@@ -763,6 +836,7 @@ const Z_AttributeConverter Z_PostProcess[] PROGMEM = {
   { Zoctstr16,Cx0021, 0x0015,  Z_(BlockedGPDID),         Cm1, 0 },
   { Zmap24,   Cx0021, 0x0016,  Z_(ClientFunctionality),  Cm1, 0 },
   { Zmap24,   Cx0021, 0x0017,  Z_(ClientActiveFunctionality),  Cm1, 0 },
+  // Shared by Server and Client
   { Zmap8,    Cx0021, 0x0020,  Z_(SharedSecurityKeyType),Cm1, 0 },
   { Zkey128,  Cx0021, 0x0021,  Z_(SharedSecurityKey),    Cm1, 0 },
   { Zkey128,  Cx0021, 0x0022,  Z_(LinkKey),  Cm1, 0 },
@@ -959,6 +1033,7 @@ const Z_AttributeConverter Z_PostProcess[] PROGMEM = {
   { Zmap16,   Cx0300, 0x400A,  Z_(ColorCapabilities),           Cm1, 0 },
   { Zuint16,  Cx0300, 0x400B,  Z_(ColorTempPhysicalMinMireds),           Cm1, 0 },
   { Zuint16,  Cx0300, 0x400C,  Z_(ColorTempPhysicalMaxMireds),           Cm1, 0 },
+  { Zuint16,  Cx0300, 0x4010,  Z_(ColorStartUpColorTempireds),           Cm1, 0 },
 
   // Ballast Configuration
   { Zuint8,   Cx0301, 0x0000,  Z_(BallastPhysicalMinLevel),           Cm1, 0 },
@@ -1054,7 +1129,35 @@ const Z_AttributeConverter Z_PostProcess[] PROGMEM = {
   { Zuint8,   Cx0500, 0xFFF0 + ZA_GlassBreak, Z_(GlassBreak),Cm1, 0 },
 
   // Metering (Smart Energy) cluster
-  { Zuint48,  Cx0702, 0x0000,  Z_(EnergyTotal),          Cm1, 0 },
+  { Zuint48,  Cx0702, 0x0000,  Z_(CurrentSummationDelivered),Cm1, 0 },
+  { Zuint48,  Cx0702, 0x0001,  Z_(CurrentSummationReceived),Cm1, 0 },
+  { Zuint48,  Cx0702, 0x0002,  Z_(CurrentMaxDemandDelivered),Cm1, 0 },
+  { Zuint48,  Cx0702, 0x0003,  Z_(CurrentMaxDemandReceived),Cm1, 0 },
+  { Zuint48,  Cx0702, 0x0004,  Z_(DFTSummation),         Cm1, 0 },
+  { Zuint16,  Cx0702, 0x0005,  Z_(DailyFreezeTime),      Cm1, 0 },
+  { Zint8,    Cx0702, 0x0006,  Z_(PowerFactor),          Cm1, 0 },
+  { ZUTC,     Cx0702, 0x0007,  Z_(ReadingSnapShotTime),  Cm1, 0 },
+  { ZUTC,     Cx0702, 0x0008,  Z_(CurrentMaxDemandDeliveredTime),Cm1, 0 },
+  { ZUTC,     Cx0702, 0x0009,  Z_(CurrentMaxDemandReceivedTime),Cm1, 0 },
+  { Zuint8,   Cx0702, 0x000A,  Z_(DefaultUpdatePeriod),  Cm1, 0 },
+  { Zuint8,   Cx0702, 0x000B,  Z_(FastPollUpdatePeriod), Cm1, 0 },
+  { Zuint48,  Cx0702, 0x000C,  Z_(CurrentBlockPeriodConsumptionDelivered),Cm1, 0 },
+  { Zuint24,  Cx0702, 0x000D,  Z_(DailyConsumptionTarget),Cm1, 0 },
+  { Zenum8,   Cx0702, 0x000E,  Z_(CurrentBlock),         Cm1, 0 },
+  { Zenum8,   Cx0702, 0x000F,  Z_(ProfileIntervalPeriod),Cm1, 0 },
+  { Zuint16,  Cx0702, 0x0010,  Z_(IntervalReadReportingPeriod),Cm1, 0 },
+  { Zuint16,  Cx0702, 0x0011,  Z_(PresetReadingTime),    Cm1, 0 },
+  { Zuint16,  Cx0702, 0x0012,  Z_(VolumePerReport),      Cm1, 0 },
+  { Zuint8,   Cx0702, 0x0013,  Z_(FlowRestriction),      Cm1, 0 },
+  { Zenum8,   Cx0702, 0x0014,  Z_(SupplyStatus),         Cm1, 0 },
+  { Zuint48,  Cx0702, 0x0015,  Z_(CurrentInletEnergyCarrierSummation),Cm1, 0 },
+  { Zuint48,  Cx0702, 0x0016,  Z_(CurrentOutletEnergyCarrierSummation),Cm1, 0 },
+  { Zint24,   Cx0702, 0x0017,  Z_(InletTemperature),     Cm1, 0 },
+  { Zint24,   Cx0702, 0x0018,  Z_(OutletTemperature),    Cm1, 0 },
+  { Zint24,   Cx0702, 0x0019,  Z_(ControlTemperature),   Cm1, 0 },
+  { Zint24,   Cx0702, 0x001A,  Z_(CurrentInletEnergyCarrierDemand),Cm1, 0 },
+  { Zint24,   Cx0702, 0x001B,  Z_(CurrentOutletEnergyCarrierDemand),Cm1, 0 },
+  { Zuint48,  Cx0702, 0x001C,  Z_(PreviousBlockPeriodConsumptionDelivered),Cm1, 0 },
 
   // Meter Identification cluster
   { Zstring,  Cx0B01, 0x0000,  Z_(CompanyName),          Cm1, 0 },

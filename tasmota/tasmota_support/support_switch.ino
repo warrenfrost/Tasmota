@@ -84,7 +84,8 @@ bool SwitchState(uint32_t index) {
           (PUSHBUTTONHOLD_INV == switchmode) ||
           (FOLLOWMULTI_INV == switchmode) ||
           (PUSHHOLDMULTI_INV == switchmode) ||
-          (PUSHON_INV == switchmode)
+          (PUSHON_INV == switchmode) ||
+          (PUSH_IGNORE_INV == switchmode)
          ) ^ Switch.last_state[index];
 }
 
@@ -406,6 +407,7 @@ void SwitchHandler(uint32_t mode) {
           }
           break;
         case PUSH_IGNORE:
+        case PUSH_IGNORE_INV:
           Switch.last_state[i] = button;                        // Update switch state before publishing
           MqttPublishSensor();
           break;
