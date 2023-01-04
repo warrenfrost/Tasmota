@@ -15,7 +15,8 @@ Useelink 3 Gang Wall Switch
 
 Binary Sensor (e.g. reed switch)
 
-Connect switch/button across key and ground pins. Use Generic template and GPIO0 as as switch 1. Use SetOption115 and SwitchMode1 15
+Connect switch/button across key and ground pins. Use Generic template and GPIO0 as as switch 1. Use SetOption115 and SwitchMode1 16. Put relay 1 on GPIO12.
+Can invert switch sensor using StateText
 
 
 Standard Options
