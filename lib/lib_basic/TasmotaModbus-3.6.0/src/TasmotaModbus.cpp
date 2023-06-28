@@ -171,6 +171,7 @@ uint8_t TasmotaModbus::Send(uint8_t device_address, uint8_t function_code, uint1
   write(frame, framepointer);
 #ifdef TASMOTA_MODBUS_TX_ENABLE
   if (mb_tx_enable_pin > -1) {
+    flush();  // Must wait for all data sent
     digitalWrite(mb_tx_enable_pin, LOW);
   }
 #endif  // TASMOTA_MODBUS_TX_ENABLE
@@ -199,11 +200,12 @@ uint8_t TasmotaModbus::ReceiveBuffer(uint8_t *buffer, uint8_t register_count, ui
       } else {
         buffer[mb_len++] = data;
         if (3 == mb_len) {
-          if ((buffer[1] == 5) || (buffer[1] == 6) || (buffer[1] == 15) || (buffer[1] == 16)) header_length = 4; // Addr, Func, StartAddr
+          // If functioncode is 5,6,15 or 16 the header length is 4 instead of 3
+          if ((buffer[1] == 5) || (buffer[1] == 6) || (buffer[1] == 15) || (buffer[1] == 16)) header_length = 4;
         }
       }
 
-      timeout = millis() + 10;
+      timeout = millis() + 20;
 
     }
   }

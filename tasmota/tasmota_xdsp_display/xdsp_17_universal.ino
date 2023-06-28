@@ -50,7 +50,9 @@ extern uint16_t fg_color;
 extern uint16_t bg_color;
 #endif
 
+#ifndef DISPDESC_SIZE
 #define DISPDESC_SIZE 1000
+#endif
 
 void Core2DisplayPower(uint8_t on);
 void Core2DisplayDim(uint8_t dim);
@@ -94,6 +96,11 @@ int8_t cs;
       fp = ffsp->open(DISP_DESC_FILE, "r");
       if (fp > 0) {
         uint32_t size = fp.size();
+        if (size > DISPDESC_SIZE - 50) {
+          free(fbuff);
+          fbuff = (char*)calloc(size + 50, 1);
+          if (!fbuff) return 0;
+        }
         fp.read((uint8_t*)fbuff, size);
         fp.close();
         ddesc = fbuff;
@@ -148,6 +155,7 @@ int8_t cs;
       if (fbuff) free(fbuff);
       return 0;
     }
+
     // now replace tasmota vars before passing to driver
     char *cp = strstr(ddesc, "I2C");
     if (cp) {
@@ -167,11 +175,15 @@ int8_t cs;
       replacepin(&cp, Pin(GPIO_OLED_RESET));
 
       if (wire_n == 1) {
-        I2cBegin(sda, scl);
+        if (!TasmotaGlobal.i2c_enabled) {
+          I2cBegin(sda, scl);
+        }
       }
 #ifdef ESP32
       if (wire_n == 2) {
-        I2c2Begin(sda, scl);
+        if (!TasmotaGlobal.i2c_enabled_2) {
+          I2c2Begin(sda, scl);
+        }
       }
       if (I2cSetDevice(i2caddr, wire_n - 1)) {
         I2cSetActiveFound(i2caddr, "DSP-I2C", wire_n - 1);
@@ -296,6 +308,7 @@ int8_t cs;
       delete renderer;
       AddLog(LOG_LEVEL_DEBUG, PSTR("DSP: reinit"));
     }
+
     udisp  = new uDisplay(ddesc);
 
     // checck for touch option TI1 or TI2
@@ -324,11 +337,15 @@ int8_t cs;
       }
 
       if (wire_n == 0) {
-        I2cBegin(sda, scl);
+        if (!TasmotaGlobal.i2c_enabled) {
+          I2cBegin(sda, scl);
+        }
       }
 #ifdef ESP32
       if (wire_n == 1) {
-        I2c2Begin(sda, scl, 400000);
+        if (!TasmotaGlobal.i2c_enabled_2) {
+          I2c2Begin(sda, scl, 400000);
+        }
       }
       if (I2cSetDevice(i2caddr, wire_n)) {
         if (i2caddr == GT911_address) {
@@ -383,9 +400,19 @@ int8_t cs;
 #ifdef USE_XPT2046
     cp = strstr(ddesc, ":TS,");
     if (cp) {
-      cp+=4;
+      cp += 4;
       uint8_t touch_cs = replacepin(&cp, Pin(GPIO_XPT2046_CS));
-	    XPT2046_Touch_Init(touch_cs);
+      int8_t irqpin = -1;
+      if (*(cp - 1) == ',') {
+        irqpin = strtol(cp, &cp, 10);
+      }
+      uint8_t bus = 1;
+      if (*cp == ',') {
+        cp++;
+        bus = strtol(cp, &cp, 10);
+        if (bus < 1) bus = 1;
+      }
+	    XPT2046_Touch_Init(touch_cs, irqpin, bus - 1);
     }
 #endif // USE_XPT2046
 

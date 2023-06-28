@@ -29,6 +29,7 @@
 
 #define FUNC_METHOD             1
 #define FUNC_ANONYMOUS          2
+#define FUNC_STATIC             4
 
 #if BE_INTGER_TYPE == 0 /* int */
   #define M_IMAX    INT_MAX
@@ -79,6 +80,7 @@ typedef struct {
 static void stmtlist(bparser *parser);
 static void block(bparser *parser, int type);
 static void expr(bparser *parser, bexpdesc *e);
+static void walrus_expr(bparser *parser, bexpdesc *e);
 static void sub_expr(bparser *parser, bexpdesc *e, int prio);
 
 static const bbyte binary_op_prio_tab[] = {
@@ -223,6 +225,7 @@ static void end_block(bparser *parser)
     end_block_ex(parser, -1);
 }
 
+#if BE_DEBUG_SOURCE_FILE
 /* Return the name of the source for this parser, could be `string`,
    `stdin` or the name of the current function */
 static bstring* parser_source(bparser *parser)
@@ -232,6 +235,7 @@ static bstring* parser_source(bparser *parser)
     }
     return be_newstr(parser->vm, parser->lexer.fname);
 }
+#endif
 
 /* Initialize a function block and create a new `bprotoˋ */
 static void begin_func(bparser *parser, bfuncinfo *finfo, bblockinfo *binfo)
@@ -249,7 +253,9 @@ static void begin_func(bparser *parser, bfuncinfo *finfo, bblockinfo *binfo)
     be_vector_init(vm, &finfo->pvec, sizeof(bproto*)); /* vector for subprotos */
     proto->ptab = be_vector_data(&finfo->pvec);
     proto->nproto = be_vector_capacity(&finfo->pvec);
+#if BE_DEBUG_SOURCE_FILE
     proto->source = parser_source(parser); /* keep a copy of source for function */
+#endif
     finfo->local = be_list_new(vm); /* list for local variables */
     var_setlist(vm->top, finfo->local); /* push list of local variables on the stack (avoid gc) */
     be_stackpush(vm);
@@ -363,7 +369,7 @@ static btokentype get_unary_op(bparser *parser)
 static btokentype get_assign_op(bparser *parser)
 {
     btokentype op = next_type(parser);
-    if (op >= OptAssign && op <= OptRsfAssign) {
+    if ((op >= OptAssign && op <= OptRsfAssign) || op == OptWalrus) {
         return op;
     }
     return OP_NOT_ASSIGN;
@@ -406,7 +412,7 @@ static int new_localvar(bparser *parser, bstring *name)
     if (reg == -1) {
         bvalue *var;
         if (comp_is_strict(parser->vm)) {
-            if (find_localvar(finfo, name, 0) >= 0 && str(name)[0] != '.') {  /* we do accept nested redifinition of internal variables starting with ':' */
+            if (find_localvar(finfo, name, 0) >= 0 && str(name)[0] != '.') {  /* we do accept nested redifinition of internal variables starting with '.' */
                 push_error(parser, "strict: redefinition of '%s' from outer scope", str(name));
             }
         }
@@ -608,7 +614,7 @@ static void func_varlist(bparser *parser)
 /* Parse a function includind arg list and body */
 /* Given name and type (function or method) */
 /* Returns `bproto` object */
-static bproto* funcbody(bparser *parser, bstring *name, int type)
+static bproto* funcbody(bparser *parser, bstring *name, bclass *c, int type)
 {
     bfuncinfo finfo;
     bblockinfo binfo;
@@ -621,6 +627,14 @@ static bproto* funcbody(bparser *parser, bstring *name, int type)
         finfo.proto->varg |= BE_VA_METHOD;
     }
     func_varlist(parser); /* parse arg list */
+    if ((type & FUNC_STATIC) && (c != NULL)) { /* If static method, add an implicit local variable `_class` */
+        bexpdesc e1, e2;
+        new_var(parser, parser_newstr(parser, "_class"), &e1); /* new implicit variable '_class' */
+        init_exp(&e2, ETCONST, 0);
+        be_code_implicit_class(parser->finfo, &e2, c);
+        be_code_setvar(parser->finfo, &e1, &e2, bfalse);
+        finfo.proto->varg |= BE_VA_STATICMETHOD;
+    }
     stmtlist(parser); /* parse statement without final `end` */
     end_func(parser); /* close function context */
     match_token(parser, KeyEnd); /* skip 'end' */
@@ -635,7 +649,7 @@ static void anon_func(bparser *parser, bexpdesc *e)
     bstring *name = parser_newstr(parser, "_anonymous_");
     /* 'def' ID '(' varlist ')' block 'end' */
     scan_next_token(parser); /* skip 'def' */
-    proto = funcbody(parser, name, FUNC_ANONYMOUS);
+    proto = funcbody(parser, name, NULL, FUNC_ANONYMOUS);
     init_exp(e, ETPROTO, be_code_proto(parser->finfo, proto));
     be_stackpop(parser->vm, 1);
 }
@@ -722,7 +736,7 @@ static void map_nextmember(bparser *parser, bexpdesc *l)
     match_token(parser, OptColon); /* ':' */
     expr(parser, &e); /* value in `e` */
     check_var(parser, &e);  /* check if value is correct */
-    be_code_setvar(finfo, &v, &e);  /* set suffi  INDEX value to e */
+    be_code_setvar(finfo, &v, &e, bfalse);  /* set suffi  INDEX value to e */
 }
 
 static void list_expr(bparser *parser, bexpdesc *e)
@@ -879,8 +893,7 @@ static void primary_expr(bparser *parser, bexpdesc *e)
     switch (next_type(parser)) {
     case OptLBK: /* '(' expr ')' */
         scan_next_token(parser); /* skip '(' */
-        /* sub_expr() is more efficient because there is no need to initialize e. */
-        sub_expr(parser, e, ASSIGN_OP_PRIO);
+        expr(parser, e);
         check_var(parser, e);
         match_token(parser, OptRBK); /* skip ')' */
         break;
@@ -955,9 +968,10 @@ static void suffix_alloc_reg(bparser *parser, bexpdesc *l)
     bbool is_suffix = l->type == ETINDEX || l->type == ETMEMBER;   /* is suffix */
     bbool is_suffix_reg = l->v.ss.tt == ETREG || l->v.ss.tt == ETLOCAL || l->v.ss.tt == ETGLOBAL || l->v.ss.tt == ETNGLOBAL;   /* if suffix, does it need a register */
     bbool is_global = l->type == ETGLOBAL || l->type == ETNGLOBAL;
+    bbool is_upval = l->type == ETUPVAL;
     /* in the suffix expression, if the object is a temporary
      * variable (l->v.ss.tt == ETREG), it needs to be cached. */
-    if (is_global || (is_suffix && is_suffix_reg)) {
+    if (is_global || is_upval || (is_suffix && is_suffix_reg)) {
         be_code_allocregs(finfo, 1);
     }
 }
@@ -1026,7 +1040,7 @@ static void assign_expr(bparser *parser)
         if (check_newvar(parser, &e)) { /* new variable */
             new_var(parser, e.v.s, &e);
         }
-        if (be_code_setvar(parser->finfo, &e, &e1)) {
+        if (be_code_setvar(parser->finfo, &e, &e1, bfalse)) {
             parser->lexer.linenumber = line;
             parser_error(parser,
                 "try to assign constant expressions.");
@@ -1111,13 +1125,35 @@ static void sub_expr(bparser *parser, bexpdesc *e, int prio)
     }
 }
 
+static void walrus_expr(bparser *parser, bexpdesc *e)
+{
+    int line = parser->lexer.linenumber;
+    sub_expr(parser, e, ASSIGN_OP_PRIO);    /* left expression */
+    btokentype op = next_type(parser);
+    if (op == OptWalrus) {
+        check_symbol(parser, e);
+        bexpdesc e1 = *e;           /* copy var to e1, e will get the result of expression */
+        scan_next_token(parser);    /* skip ':=' */
+        expr(parser, e);
+        check_var(parser, e);
+        if (check_newvar(parser, &e1)) { /* new variable */
+            new_var(parser, e1.v.s, e);
+        }
+        if (be_code_setvar(parser->finfo, &e1, e, btrue /* do not release register */ )) {
+            parser->lexer.linenumber = line;
+            parser_error(parser,
+                "try to assign constant expressions.");
+        }
+    }
+}
+
 /* Parse new expression and return value in `e` (overwritten) */
 /* Initializes an empty expdes  and parse subexpr */
 /* Always allocates a new temp register at top of freereg */
 static void expr(bparser *parser, bexpdesc *e)
 {
     init_exp(e, ETVOID, 0);
-    sub_expr(parser, e, ASSIGN_OP_PRIO);
+    walrus_expr(parser, e);
 }
 
 static void expr_stmt(bparser *parser)
@@ -1236,7 +1272,7 @@ static void for_iter(bparser *parser, bstring *var, bexpdesc *it)
     finfo->binfo->beginpc = finfo->pc;
     /* itvar = .it() */
     init_exp(&e, ETLOCAL, new_localvar(parser, var)); /* new itvar */
-    be_code_setvar(finfo, &e, it); /* code function to variable '.it' */
+    be_code_setvar(finfo, &e, it, bfalse); /* code function to variable '.it' */
     be_code_call(finfo, e.v.idx, 0); /* itvar <- call .it() */
     stmtlist(parser);
 }
@@ -1371,7 +1407,7 @@ static void def_stmt(bparser *parser)
     bfuncinfo *finfo = parser->finfo;
     /* 'def' ID '(' varlist ')' block 'end' */
     scan_next_token(parser); /* skip 'def' */
-    proto = funcbody(parser, func_name(parser, &e, 0), 0);
+    proto = funcbody(parser, func_name(parser, &e, 0), NULL, 0);
     be_code_closure(finfo, &e, be_code_proto(finfo, proto));
     be_stackpop(parser->vm, 1);
 }
@@ -1430,7 +1466,7 @@ static void class_static_assignment_expr(bparser *parser, bexpdesc *e, bstring *
         key.v.s = name;
 
         be_code_member(parser->finfo, &e1, &key);   /* compute member accessor */
-        be_code_setvar(parser->finfo, &e1, &e2);    /* set member */
+        be_code_setvar(parser->finfo, &e1, &e2, bfalse);    /* set member */
     }
 }
 
@@ -1443,10 +1479,12 @@ static void classdef_stmt(bparser *parser, bclass *c, bbool is_static)
     scan_next_token(parser); /* skip 'def' */
     name = func_name(parser, &e, 1);
     check_class_attr(parser, c, name);
-    proto = funcbody(parser, name, is_static ? 0 : FUNC_METHOD);
+    proto = funcbody(parser, name, c, is_static ? FUNC_STATIC : FUNC_METHOD);
     be_class_method_bind(parser->vm, c, proto->name, proto, is_static);
     be_stackpop(parser->vm, 1);
 }
+
+static void classstaticclass_stmt(bparser *parser, bclass *c_out, bexpdesc *e_out);
 
 static void classstatic_stmt(bparser *parser, bclass *c, bexpdesc *e)
 {
@@ -1456,6 +1494,8 @@ static void classstatic_stmt(bparser *parser, bclass *c, bexpdesc *e)
     scan_next_token(parser); /* skip 'static' */
     if (next_type(parser) == KeyDef) {  /* 'static' 'def' ... */
         classdef_stmt(parser, c, btrue);
+    } else if (next_type(parser) == KeyClass) {  /* 'static' 'class' ... */
+        classstaticclass_stmt(parser, c, e);
     } else {
         if (next_type(parser) == KeyVar) {
             scan_next_token(parser); /* skip 'var' if any */
@@ -1526,6 +1566,36 @@ static void class_stmt(bparser *parser)
     }
 }
 
+static void classstaticclass_stmt(bparser *parser, bclass *c_out, bexpdesc *e_out)
+{
+    bstring *name;
+    /* [preceding 'static'] 'class' ID [':' ID] class_block 'end' */
+    scan_next_token(parser); /* skip 'class' */
+    if (match_id(parser, name) != NULL) {
+        bexpdesc e_class;         /* new class object */
+        check_class_attr(parser, c_out, name);      /* check that the class names does not collide with another member */
+        be_class_member_bind(parser->vm, c_out, name, bfalse);  /* add the member slot as static */
+        /* create the class object */
+        bclass *c = be_newclass(parser->vm, name, NULL);
+        new_var(parser, name, &e_class);    /* add a local var to the static initialization code for static members */
+        be_code_class(parser->finfo, &e_class, c);
+        class_inherit(parser, &e_class);
+        class_block(parser, c, &e_class);
+        be_class_compress(parser->vm, c); /* compress class size */
+        match_token(parser, KeyEnd); /* skip 'end' */
+        /* add the code to copy the class object to the static member */
+        bexpdesc e1 = *e_out;        /* copy the class description */
+        bexpdesc key;   /* build the member key */
+        init_exp(&key, ETSTRING, 0);
+        key.v.s = name;
+        /* assign the class to the static member */
+        be_code_member(parser->finfo, &e1, &key);   /* compute member accessor */
+        be_code_setvar(parser->finfo, &e1, &e_class, bfalse);    /* set member */
+    } else {
+        parser_error(parser, "class name error");
+    }
+}
+
 static void import_stmt(bparser *parser)
 {
     bstring *name; /* variable name */
@@ -1572,7 +1642,7 @@ static void var_field(bparser *parser)
         init_exp(&e2, ETNIL, 0);
     }
     new_var(parser, name, &e1); /* new variable */
-    be_code_setvar(parser->finfo, &e1, &e2);
+    be_code_setvar(parser->finfo, &e1, &e2, bfalse);
 }
 
 static void var_stmt(bparser *parser)

@@ -24,6 +24,9 @@
 
 #include <berry.h>
 #include "berry_tasmota.h"
+#ifdef USE_MATTER_DEVICE
+  #include "berry_matter.h"
+#endif
 #include "be_vm.h"
 #include "ZipReadFS.h"
 #include "ccronexpr.h"
@@ -374,6 +377,12 @@ void BerryInit(void) {
 \*********************************************************************************************/
 void BrLoad(const char * script_name) {
   if (berry.vm == nullptr || TasmotaGlobal.no_autoexec) { return; }   // abort is berry is not running, or bootloop prevention kicked in
+
+  if (!strcmp_P(script_name, "autoexec.be")) {
+    if (Settings->flag6.berry_no_autoexec) {   // SetOption153 - (Berry) Disable autoexec.be on restart (1)
+      return;
+    }
+  }
 
   be_getglobal(berry.vm, PSTR("load"));
   if (!be_isnil(berry.vm, -1)) {
@@ -798,6 +807,9 @@ bool Xdrv52(uint32_t function)
       break;
     case FUNC_WEB_SENSOR:
       callBerryEventDispatcher(PSTR("web_sensor"), nullptr, 0, nullptr);
+      break;
+    case FUNC_WEB_GET_ARG:
+      callBerryEventDispatcher(PSTR("web_get_arg"), nullptr, 0, nullptr);
       break;
 
     case FUNC_JSON_APPEND:

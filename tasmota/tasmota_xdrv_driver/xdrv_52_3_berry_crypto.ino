@@ -66,6 +66,56 @@ extern "C" {
 }
 
 /*********************************************************************************************\
+ * RSA class
+ * 
+\*********************************************************************************************/
+extern "C" {
+  // crypto.RSA.rsassa_pkcs1_v1_5(private_key:bytes(), msg:bytes()) -> bytes()
+  // Parses RSA private key from DER binary
+  int32_t m_rsa_rsassa_pkcs1_v1_5(bvm *vm);
+  int32_t m_rsa_rsassa_pkcs1_v1_5(bvm *vm) {
+    int32_t argc = be_top(vm); // Get the number of arguments
+    if (argc >= 2 && be_isbytes(vm, 1)) {
+      size_t sk_len = 0;
+      uint8_t * sk_der = (uint8_t*) be_tobytes(vm, 1, &sk_len);
+      
+      // 1. decode the DER private key
+      br_skey_decoder_context sdc;
+      br_skey_decoder_init(&sdc);
+      br_skey_decoder_push(&sdc, sk_der, sk_len);
+      if (int ret = br_skey_decoder_last_error(&sdc)) {
+        be_raisef(vm, "value_error", "invalid private key %i", ret);
+      }
+      if (br_skey_decoder_key_type(&sdc) != BR_KEYTYPE_RSA) {
+        be_raise(vm, "value_error", "key is not RSA");
+      }
+      const br_rsa_private_key *sk = br_skey_decoder_get_rsa(&sdc);
+      
+      // 2. Hash the message with SHA
+      size_t msg_len = 0;
+      uint8_t * msg = (uint8_t*) be_tobytes(vm, 2, &msg_len);
+      uint8_t hash[32];
+      br_sha256_context ctx;
+      br_sha256_init(&ctx);
+      br_sha256_update(&ctx, msg, msg_len);
+      br_sha256_out(&ctx, hash);
+
+      // 3. sign the message
+      size_t sign_len = (sk->n_bitlen + 7) / 8;
+      uint8_t x[sign_len] = {};
+      int err = br_rsa_i15_pkcs1_sign(BR_HASH_OID_SHA256,	hash, sizeof(hash), sk, x);
+      if (err != 1) {
+        be_raisef(vm, "value_error", "signature failed %i", err);
+      }
+
+      be_pushbytes(vm, x, sign_len);
+      be_return(vm);
+    }
+    be_raise(vm, kTypeError, nullptr);
+  }
+}
+
+/*********************************************************************************************\
  * AES_GCM class
  * 
 \*********************************************************************************************/
@@ -232,7 +282,9 @@ extern "C" {
         int ret = br_ccm_reset(ccm_ctx, nonce, nonce_len, aad_len, data_len, tag_len);
         if (ret == 0) { be_raise(vm, "value_error", "br_ccm_reset failed"); }
 
-        br_ccm_aad_inject(ccm_ctx, aad, aad_len);
+        if (aad_len > 0) {
+          br_ccm_aad_inject(ccm_ctx, aad, aad_len);
+        }
         br_ccm_flip(ccm_ctx);
 
         be_return_nil(vm);
@@ -566,6 +618,147 @@ extern "C" {
     be_raise(vm, kTypeError, nullptr);
   }
   
+  // crypto.EC_P256().ecdsa_sign_sha256(my_private_key:bytes(32), message:bytes()) -> bytes(64)
+  // Sign with ECDSA SHA256
+  int32_t m_ec_p256_ecdsa_sign_sha256(bvm *vm);
+  int32_t m_ec_p256_ecdsa_sign_sha256(bvm *vm) {
+    int32_t argc = be_top(vm); // Get the number of arguments
+    if (argc >= 2 && be_isbytes(vm, 1) && be_isbytes(vm, 2)) {
+      size_t sk_len = 0;
+      uint8_t * sk = (uint8_t*) be_tobytes(vm, 1, &sk_len);
+      size_t msg_len = 0;
+      const uint8_t * msg = (const uint8_t*) be_tobytes(vm, 2, &msg_len);
+      if (sk_len != 32) {
+        be_raise(vm, "value_error", "Key size invalid");
+      }
+
+      // first compute SHA-256 hash on the message
+      uint8_t hash[32];
+      br_sha256_context ctx;
+      br_sha256_init(&ctx);
+      br_sha256_update(&ctx, msg, msg_len);
+      br_sha256_out(&ctx, hash);
+ 
+      // run ECDSA on hash
+      uint8_t sign[64];         // hard limit for ECDSA SHA256
+      br_ec_private_key br_sk = { BR_EC_secp256r1, sk, 32 };
+      size_t sign_len = br_ecdsa_i15_sign_raw(&BR_EC_P256_IMPL, &br_sha256_vtable, hash, &br_sk, sign);
+
+      be_pushbytes(vm, sign, sign_len);
+      be_return(vm);
+    }
+    be_raise(vm, kTypeError, nullptr);
+  }
+
+  // `crypto.EC_P256().ecdsa_verify_sha256(public_key:bytes(65), message:bytes(), hash:bytes()) -> bool`
+  // Verify signature with ECDSA SHA256
+  int32_t m_ec_p256_ecdsa_verify_sha256(bvm *vm);
+  int32_t m_ec_p256_ecdsa_verify_sha256(bvm *vm) {
+    int32_t argc = be_top(vm); // Get the number of arguments
+    if (argc >= 3 && be_isbytes(vm, 1) && be_isbytes(vm, 2) && be_isbytes(vm, 3)) {
+      size_t pk_len = 0;
+      uint8_t * pk = (uint8_t*) be_tobytes(vm, 1, &pk_len);
+      size_t msg_len = 0;
+      const uint8_t * msg = (const uint8_t*) be_tobytes(vm, 2, &msg_len);
+      if (pk_len != 65) {
+        be_raise(vm, "value_error", "Key size invalid");
+      }
+      size_t sig_len = 0;
+      const uint8_t * sig = (const uint8_t*) be_tobytes(vm, 3, &sig_len);
+
+      // first compute SHA-256 hash on the message
+      uint8_t hash[32];
+      br_sha256_context ctx;
+      br_sha256_init(&ctx);
+      br_sha256_update(&ctx, msg, msg_len);
+      br_sha256_out(&ctx, hash);
+ 
+      // run ECDSA on hash
+      br_ec_public_key br_pk = { BR_EC_secp256r1, pk, pk_len };
+      uint32_t ret = br_ecdsa_i15_vrfy_raw(&BR_EC_P256_IMPL, hash, sizeof(hash), &br_pk, sig, sig_len);
+
+      be_pushbool(vm, ret);
+      be_return(vm);
+    }
+    be_raise(vm, kTypeError, nullptr);
+  }
+
+  // crypto.EC_P256().ecdsa_sign_sha256_asn1(my_private_key:bytes(32), message:bytes()) -> bytes()
+  // Sign with ECDSA SHA256, result in ASN.1 format for CSR and certificate
+  int32_t m_ec_p256_ecdsa_sign_sha256_asn1(bvm *vm);
+  int32_t m_ec_p256_ecdsa_sign_sha256_asn1(bvm *vm) {
+    int32_t argc = be_top(vm); // Get the number of arguments
+    if (argc >= 2 && be_isbytes(vm, 1) && be_isbytes(vm, 2)) {
+      size_t sk_len = 0;
+      uint8_t * sk = (uint8_t*) be_tobytes(vm, 1, &sk_len);
+      size_t msg_len = 0;
+      const uint8_t * msg = (const uint8_t*) be_tobytes(vm, 2, &msg_len);
+      if (sk_len != 32) {
+        be_raise(vm, "value_error", "Key size invalid");
+      }
+
+      // first compute SHA-256 hash on the message
+      uint8_t hash[32];
+      br_sha256_context ctx;
+      br_sha256_init(&ctx);
+      br_sha256_update(&ctx, msg, msg_len);
+      br_sha256_out(&ctx, hash);
+ 
+      // run ECDSA on hash
+      uint8_t sign[72];         // hard limit for ECDSA SHA256 ASN.1 as per bearssl documentation
+      br_ec_private_key br_sk = { BR_EC_secp256r1, sk, 32 };
+      size_t sign_len = br_ecdsa_i15_sign_asn1(&BR_EC_P256_IMPL, &br_sha256_vtable, hash, &br_sk, sign);
+
+      be_pushbytes(vm, sign, sign_len);
+      be_return(vm);
+    }
+    be_raise(vm, kTypeError, nullptr);
+  }
+
+  // `crypto.EC_P256().ecdsa_verify_sha256_asn1(public_key:bytes(65), message:bytes(), hash:bytes()) -> bool`
+  // Verify signature with ECDSA SHA256 with signature in ASN.1 format
+  int32_t m_ec_p256_ecdsa_verify_sha256_asn1(bvm *vm);
+  int32_t m_ec_p256_ecdsa_verify_sha256_asn1(bvm *vm) {
+    int32_t argc = be_top(vm); // Get the number of arguments
+    if (argc >= 3 && be_isbytes(vm, 1) && be_isbytes(vm, 2) && be_isbytes(vm, 3)) {
+      size_t pk_len = 0;
+      uint8_t * pk = (uint8_t*) be_tobytes(vm, 1, &pk_len);
+      size_t msg_len = 0;
+      const uint8_t * msg = (const uint8_t*) be_tobytes(vm, 2, &msg_len);
+      if (pk_len != 65) {
+        be_raise(vm, "value_error", "Key size invalid");
+      }
+      size_t sig_len = 0;
+      const uint8_t * sig = (const uint8_t*) be_tobytes(vm, 3, &sig_len);
+
+      // first compute SHA-256 hash on the message
+      uint8_t hash[32];
+      br_sha256_context ctx;
+      br_sha256_init(&ctx);
+      br_sha256_update(&ctx, msg, msg_len);
+      br_sha256_out(&ctx, hash);
+ 
+      // run ECDSA on hash
+      br_ec_public_key br_pk = { BR_EC_secp256r1, pk, pk_len };
+      uint32_t ret = br_ecdsa_i15_vrfy_asn1(&BR_EC_P256_IMPL, hash, sizeof(hash), &br_pk, sig, sig_len);
+
+      be_pushbool(vm, ret);
+      be_return(vm);
+    }
+    be_raise(vm, kTypeError, nullptr);
+  }
+  /* Test values
+  import crypto
+  var priv = bytes('D42A43989B67211031FF194FBA791B5C3E03F9EC10ED561A4DEB2AA7BADB4772')
+  # var priv = crypto.random(32)
+  var pub = crypto.EC_P256().public_key(priv)
+  var msg = bytes().fromstring("Tasmota crypto ECDSA SECP256R1 SHA256 test message")
+
+  var sig = crypto.EC_P256().ecdsa_sign_sha256(priv, msg)
+  var ok = crypto.EC_P256().ecdsa_verify_sha256(pub, msg, sig)
+  assert(ok == true)
+  */
+
   // We have generated the P256 order as a i15 encoding using 
   // static const unsigned char P256_N[] PROGMEM = {
   //   0xFF, 0xFF, 0xFF, 0xFF, 0x00, 0x00, 0x00, 0x00,
@@ -579,11 +772,10 @@ extern "C" {
   // 11015125C6780B2BCE1D4F68F362692B7D73BC7FFF7FFF7FFF7FFF0F00000040FF7FFF7F0100
 
   // N=bytes('11015125C6780B2BCE1D4F68F362692B7D73BC7FFF7FFF7FFF7FFF0F00000040FF7FFF7F0100')
-  // import string
   // s = ''
   // while size(N) > 0
   //   var n = N.get(0, 2)
-  //   s += string.format("0x%04X, ", n)
+  //   s += format("0x%04X, ", n)
   //   N = N[2..]
   // end
   // print(s)

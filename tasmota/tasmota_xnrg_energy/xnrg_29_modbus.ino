@@ -75,7 +75,6 @@
 //#define ENERGY_MODBUS_DEBUG_SHOW
 
 #define ENERGY_MODBUS_FILE        "/modbus.json"       // Modbus parameter file name used by filesystem
-#define ENERGY_MODBUS_MAX_FSIZE   1024                 // Modbus parameter file max size
 
 const uint16_t nrg_mbs_reg_not_used = 0xFFFF;          // Odd number 65535 is unused register
 
@@ -217,7 +216,7 @@ void EnergyModbusLoop(void) {
       * Cl = CRC lsb
       * Ch = CRC msb
       */
-      Energy.data_valid[NrgMbsParam.phase] = 0;
+      Energy->data_valid[NrgMbsParam.phase] = 0;
 
       float value;
       switch (NrgMbsReg[NrgMbsParam.state].datatype) {
@@ -294,31 +293,31 @@ void EnergyModbusLoop(void) {
 
       switch (NrgMbsParam.state) {
         case NRG_MBS_VOLTAGE:
-          Energy.voltage[NrgMbsParam.phase] = value;          // 230.2 V
+          Energy->voltage[NrgMbsParam.phase] = value;          // 230.2 V
           break;
         case NRG_MBS_CURRENT:
-          Energy.current[NrgMbsParam.phase]  = value;         // 1.260 A
+          Energy->current[NrgMbsParam.phase]  = value;         // 1.260 A
           break;
         case NRG_MBS_ACTIVE_POWER:
-          Energy.active_power[NrgMbsParam.phase] = value;     // -196.3 W
+          Energy->active_power[NrgMbsParam.phase] = value;     // -196.3 W
           break;
         case NRG_MBS_APPARENT_POWER:
-          Energy.apparent_power[NrgMbsParam.phase] = value;   // 223.4 VA
+          Energy->apparent_power[NrgMbsParam.phase] = value;   // 223.4 VA
           break;
         case NRG_MBS_REACTIVE_POWER:
-          Energy.reactive_power[NrgMbsParam.phase] = value;   // 92.2
+          Energy->reactive_power[NrgMbsParam.phase] = value;   // 92.2
           break;
         case NRG_MBS_POWER_FACTOR:
-          Energy.power_factor[NrgMbsParam.phase] = value;     // -0.91
+          Energy->power_factor[NrgMbsParam.phase] = value;     // -0.91
           break;
         case NRG_MBS_FREQUENCY:
-          Energy.frequency[NrgMbsParam.phase] = value;        // 50.0 Hz
+          Energy->frequency[NrgMbsParam.phase] = value;        // 50.0 Hz
           break;
         case NRG_MBS_TOTAL_ENERGY:
-          Energy.import_active[NrgMbsParam.phase] = value;    // 6.216 kWh => used in EnergyUpdateTotal()
+          Energy->import_active[NrgMbsParam.phase] = value;    // 6.216 kWh => used in EnergyUpdateTotal()
           break;
         case NRG_MBS_EXPORT_ACTIVE_ENERGY:
-          Energy.export_active[NrgMbsParam.phase] = value;    // 478.492 kWh
+          Energy->export_active[NrgMbsParam.phase] = value;    // 478.492 kWh
           break;
         default:
           if (NrgMbsUser) {
@@ -335,7 +334,7 @@ void EnergyModbusLoop(void) {
     uint32_t phase = 0;
     do {
       NrgMbsParam.phase++;
-      if (NrgMbsParam.phase >= Energy.phase_count) {
+      if (NrgMbsParam.phase >= Energy->phase_count) {
         NrgMbsParam.phase = 0;
         NrgMbsParam.state++;
         if (NrgMbsParam.state >= NrgMbsParam.total_regs) {
@@ -435,8 +434,8 @@ bool EnergyModbusReadUserRegisters(JsonParserObject user_add_value, uint32_t add
   if (!phase) {
     return false;                                // No register entered so skip
   }
-  if (phase > Energy.phase_count) {
-    Energy.phase_count = phase;
+  if (phase > Energy->phase_count) {
+    Energy->phase_count = phase;
     NrgMbsParam.devices = 1;                     // Only one device allowed with multiple phases
   }
 
@@ -482,15 +481,9 @@ bool EnergyModbusReadRegisters(void) {
   String modbus = "";
 
 #ifdef USE_UFILESYS
-  char *modbus_file = (char*)calloc(ENERGY_MODBUS_MAX_FSIZE, 1);
-  if (modbus_file) {
-    if (TfsLoadFile(ENERGY_MODBUS_FILE, (uint8_t*)modbus_file, ENERGY_MODBUS_MAX_FSIZE -1)) {
-      if (strlen(modbus_file) < ENERGY_MODBUS_MAX_FSIZE) {
-        modbus = modbus_file;
-        AddLog(LOG_LEVEL_DEBUG, PSTR("NRG: Loaded from File"));
-      }
-    }
-    free(modbus_file);
+  modbus = TfsLoadString(ENERGY_MODBUS_FILE);
+  if (modbus.length()) {
+    AddLog(LOG_LEVEL_DEBUG, PSTR("NRG: Loaded from File"));
   }
 #endif  // USE_UFILESYS
 
@@ -508,13 +501,12 @@ bool EnergyModbusReadRegisters(void) {
   }
 #endif  // USE_SCRIPT
 
-  if (!modbus.length()) { return false; }        // File not found
+  if (modbus.length() < 7) { return false; }     // File not found or Invalid JSON
+
 //    AddLog(LOG_LEVEL_DEBUG, PSTR("NRG: File '%s'"), modbus.c_str());
 
   const char* json = modbus.c_str();
   uint32_t len = strlen(json) +1;
-  if (len < 7) { return false; }                 // Invalid JSON
-
   char json_buffer[len];
   memcpy(json_buffer, json, len);                // Keep original safe
   JsonParser parser(json_buffer);
@@ -522,7 +514,7 @@ bool EnergyModbusReadRegisters(void) {
   if (!root) { return false; }                   // Invalid JSON
 
   // Init defaults
-  Energy.phase_count = 1;
+  Energy->phase_count = 1;
   NrgMbsParam.serial_bps = ENERGY_MODBUS_SPEED;
   NrgMbsParam.serial_config = ENERGY_MODBUS_CONFIG;
   NrgMbsParam.ticker_poll = ENERGY_MODBUS_TICKER_POLL;
@@ -611,8 +603,8 @@ bool EnergyModbusReadRegisters(void) {
 
   // Get default energy registers
   char register_name[32];
-  Energy.voltage_available = false;              // Disable voltage is measured
-  Energy.current_available = false;              // Disable current is measured
+  Energy->voltage_available = false;              // Disable voltage is measured
+  Energy->current_available = false;              // Disable current is measured
   for (uint32_t names = 0; names < NRG_MBS_MAX_REGS; names++) {
     val = root[GetTextIndexed(register_name, sizeof(register_name), names, kEnergyModbusValues)];
     if (val) {
@@ -639,24 +631,24 @@ bool EnergyModbusReadRegisters(void) {
         NrgMbsReg[names].address[0] = val.getUInt();
         phase++;
       }
-      if (phase > Energy.phase_count) {
-        Energy.phase_count = phase;
+      if (phase > Energy->phase_count) {
+        Energy->phase_count = phase;
         NrgMbsParam.devices = 1;                 // Only one device allowed with multiple phases
       }
 
       switch(names) {
         case NRG_MBS_VOLTAGE:
-          Energy.voltage_available = true;       // Enable if voltage is measured
+          Energy->voltage_available = true;       // Enable if voltage is measured
           if (1 == phase) {
-            Energy.voltage_common = true;        // Use common voltage
+            Energy->voltage_common = true;        // Use common voltage
           }
           break;
         case NRG_MBS_CURRENT:
-          Energy.current_available = true;       // Enable if current is measured
+          Energy->current_available = true;       // Enable if current is measured
           break;
         case NRG_MBS_FREQUENCY:
           if (1 == phase) {
-            Energy.frequency_common = true;      // Use common frequency
+            Energy->frequency_common = true;      // Use common frequency
           }
           break;
         case NRG_MBS_TOTAL_ENERGY:
@@ -715,9 +707,9 @@ bool EnergyModbusReadRegisters(void) {
   }
   if (NrgMbsParam.devices > 1) {
     // Multiple devices have no common values
-    Energy.phase_count = NrgMbsParam.devices;
-    Energy.voltage_common = false;        // Use no common voltage
-    Energy.frequency_common = false;      // Use no common frequency
+    Energy->phase_count = NrgMbsParam.devices;
+    Energy->voltage_common = false;        // Use no common voltage
+    Energy->frequency_common = false;      // Use no common frequency
     Settings->flag5.energy_phase = 1;     // SetOption129 - (Energy) Show phase information
   }
 
@@ -807,7 +799,6 @@ uint32_t EnergyModbusResolution(uint32_t resolution) {
 }
 
 void EnergyModbusShow(bool json) {
-  char value_chr[GUISZ];
   float values[ENERGY_MAX_PHASES];
   for (uint32_t i = 0; i < NrgMbsParam.user_adds; i++) {
     uint32_t reg_index = NRG_MBS_MAX_REGS + i;
@@ -837,16 +828,12 @@ void EnergyModbusShow(bool json) {
 #ifdef ENERGY_MODBUS_DEBUG_SHOW
       AddLog(LOG_LEVEL_DEBUG, PSTR("NRG: resolution %d -> %d"), NrgMbsUser[i].resolution, resolution);
 #endif
-
       if (json) {
-        ResponseAppend_P(PSTR(",\"%s\":%s"), NrgMbsUser[i].json_name, EnergyFormat(value_chr, values, resolution, single));
+        ResponseAppend_P(PSTR(",\"%s\":%s"), NrgMbsUser[i].json_name, EnergyFmt(values, resolution, single));
 #ifdef USE_WEBSERVER
       } else {
         if (strlen(NrgMbsUser[i].gui_name)) {    // Skip empty GUI names
-          WSContentSend_PD(PSTR("{s}%s{m}%s %s{e}"),
-            NrgMbsUser[i].gui_name,
-            WebEnergyFormat(value_chr, values, resolution, single),
-            NrgMbsUser[i].gui_unit);
+          WSContentSend_PD(PSTR("{s}%s{m}%s %s{e}"), NrgMbsUser[i].gui_name, WebEnergyFmt(values, resolution, single), NrgMbsUser[i].gui_unit);
         }
 #endif  // USE_WEBSERVER
       }
@@ -872,11 +859,7 @@ bool Xnrg29(uint32_t function) {
       EnergyModbusShow(1);
       break;
 #ifdef USE_WEBSERVER
-#ifdef USE_ENERGY_COLUMN_GUI
     case FUNC_WEB_COL_SENSOR:
-#else   // not USE_ENERGY_COLUMN_GUI
-    case FUNC_WEB_SENSOR:
-#endif  // USE_ENERGY_COLUMN_GUI
       EnergyModbusShow(0);
       break;
 #endif  // USE_WEBSERVER

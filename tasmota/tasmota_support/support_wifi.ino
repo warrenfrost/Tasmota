@@ -198,7 +198,6 @@ void WiFiSetSleepMode(void)
       WiFi.setSleepMode(WIFI_MODEM_SLEEP);      // Sleep (Esp8288/Arduino core and sdk default)
     }
   }
-  WifiSetOutputPower();
 }
 
 void WifiBegin(uint8_t flag, uint8_t channel) {
@@ -224,6 +223,7 @@ void WifiBegin(uint8_t flag, uint8_t channel) {
 #endif
 
   WiFiSetSleepMode();
+  WifiSetOutputPower();
 //  if (WiFi.getPhyMode() != WIFI_PHY_MODE_11N) { WiFi.setPhyMode(WIFI_PHY_MODE_11N); }  // B/G/N
 //  if (WiFi.getPhyMode() != WIFI_PHY_MODE_11G) { WiFi.setPhyMode(WIFI_PHY_MODE_11G); }  // B/G
 #ifdef ESP32
@@ -461,35 +461,35 @@ void WifiSetState(uint8_t state)
 
 /*****************************************************************************************************\
  * IP detection revised for full IPv4 / IPv6 support
- * 
+ *
  * In general, each interface (Wifi/Eth) can have 1x IPv4 and
  * 2x IPv6 (Global routable address and Link-Local starting witn fe80:...)
- * 
+ *
  * We always use an IPv4 address if one is assigned, and revert to
  * IPv6 only on networks that are v6 only.
  * Ethernet calls can be safely used even if the USE_ETHERNET is not enabled
- * 
+ *
  * New APIs:
  * - general form is:
  *   `bool XXXGetIPYYY(IPAddress*)` returns `true` if the address exists and copies the address
  *                                  if the pointer is non-null.
  *   `bool XXXHasIPYYY()`           same as above but only returns `true` or `false`
  *   `String XXXGetIPYYYStr()`      returns the IP as a `String` or empty `String` if none
- * 
+ *
  *   `XXX` can be `Wifi` or `Eth`
  *   `YYY` can be `` for any address, `v6` for IPv6 global address or `v6LinkLocal` for Link-local
- * 
+ *
  * - Legacy `Wifi.localIP()` and `ETH.localIP()` always return IPv4 and nothing on IPv6 only networks
  *
  * - v4/v6:
  *   `WifiGetIP`, `WifiGetIPStr`, `WifiHasIP`: get preferred v4/v6 address for Wifi
  *   `EthernetGetIP`, `EthernetGetIPStr`, `EthernetHasIP`: get preferred v4/v6 for Ethernet
- * 
+ *
  * - Main IP to be used dual stack v4/v6
  *   `hasIP`, `IPGetListeningAddress`, `IPGetListeningAddressStr`: any IP to listen to for Web Server
  *             IPv4 is always preferred, and Eth is preferred over Wifi.
  *   `IPForUrl`: converts v4/v6 to use in URL, enclosing v6 in []
- * 
+ *
  * - v6 only:
  *    `WifiGetIPv6`, `WifiGetIPv6Str`, `WifiHasIPv6`
  *    `WifiGetIPv6LinkLocal`, `WifiGetIPv6LinkLocalStr`
@@ -499,10 +499,11 @@ void WifiSetState(uint8_t state)
  * - v4 only:
  *    `WifiGetIPv4`, `WifiGetIPv4Str`, `WifiHasIPv4`
  *    `EthernetGetIPv4`, `EthernetGetIPv4Str`, `EthernetHasIPv4`
- * 
+ *
  * - DNS reporting actual values used (not the Settings):
  *    `DNSGetIP(n)`, `DNSGetIPStr(n)` with n=`0`/`1` (same dns for Wifi and Eth)
 \*****************************************************************************************************/
+bool WifiGetIP(IPAddress *ip, bool exclude_ap = false);
 // IPv4 for Wifi
 // Returns only IPv6 global address (no loopback and no link-local)
 bool WifiGetIPv4(IPAddress *ip)
@@ -648,7 +649,7 @@ String DNSGetIPStr(uint32_t idx)
   return DNSGetIP(&ip, idx) ? ip.toString() : String(F("0.0.0.0"));
 }
 
-// 
+//
 #include "lwip/dns.h"
 void WifiDumpAddressesIPv6(void)
 {
@@ -755,24 +756,38 @@ String IPForUrl(const IPAddress & ip)
 // Check to see if we have any routable IP address
 // IPv4 has always priority
 // Copy the value of the IP if pointer provided (optional)
-bool WifiGetIP(IPAddress *ip) {
-#ifdef USE_IPV6
-  if ((uint32_t)WiFi.localIP() != 0) {
+// `exclude_ap` allows to exlude AP IP address and focus only on local STA
+bool WifiGetIP(IPAddress *ip, bool exclude_ap) {
+#ifdef ESP32
+  wifi_mode_t mode = WiFi.getMode();
+  if ((mode == WIFI_MODE_STA || mode == WIFI_MODE_APSTA) && (uint32_t)WiFi.localIP() != 0) {
     if (ip != nullptr) { *ip = WiFi.localIP(); }
     return true;
   }
+  if (!exclude_ap && (mode == WIFI_MODE_AP || mode == WIFI_MODE_APSTA) && (uint32_t)WiFi.softAPIP() != 0) {
+    if (ip != nullptr) { *ip = WiFi.softAPIP(); }
+    return true;
+  }
+#else
+  WiFiMode_t mode = WiFi.getMode();
+  if ((mode == WIFI_STA || mode == WIFI_AP_STA) && (uint32_t)WiFi.localIP() != 0) {
+    if (ip != nullptr) { *ip = WiFi.localIP(); }
+    return true;
+  }
+  if (!exclude_ap && (mode == WIFI_AP || mode == WIFI_AP_STA) && (uint32_t)WiFi.softAPIP() != 0) {
+    if (ip != nullptr) { *ip = WiFi.softAPIP(); }
+    return true;
+  }
+#endif
+#ifdef USE_IPV6
   IPAddress lip;
   if (WifiGetIPv6(&lip)) {
     if (ip != nullptr) { *ip = lip; }
     return true;
   }
   if (ip != nullptr) { *ip = IPAddress(); }
-  return false;
-#else
-  // IPv4 only
-  if (ip != nullptr) { *ip = WiFi.localIP(); }
-  return (uint32_t)WiFi.localIP() != 0;
 #endif // USE_IPV6
+  return false;
 }
 
 bool WifiHasIP(void) {
@@ -959,16 +974,70 @@ int WifiState(void)
   return state;
 }
 
-String WifiGetOutputPower(void)
-{
-  char stemp1[TOPSZ];
-  dtostrfd((float)(Settings->wifi_output_power) / 10, 1, stemp1);
-  return String(stemp1);
+float WifiGetOutputPower(void) {
+  if (Settings->wifi_output_power) {
+    Wifi.last_tx_pwr = Settings->wifi_output_power;
+  }
+  return (float)(Wifi.last_tx_pwr) / 10;
 }
 
-void WifiSetOutputPower(void)
-{
-  WiFi.setOutputPower((float)(Settings->wifi_output_power) / 10);
+void WifiSetOutputPower(void) {
+  if (Settings->wifi_output_power) {
+    WiFi.setOutputPower((float)(Settings->wifi_output_power) / 10);
+  } else {
+    AddLog(LOG_LEVEL_DEBUG, PSTR("WIF: Dynamic Tx power enabled"));  // WifiPower 0
+  }
+}
+
+void WiFiSetTXpowerBasedOnRssi(void) {
+  // Dynamic WiFi transmit power based on RSSI lowering overall DC power usage.
+  // Original idea by ESPEasy (@TD-er)
+  if (!Settings->flag4.network_wifi || Settings->wifi_output_power) { return; }
+  const WiFiMode_t cur_mode = WiFi.getMode();
+  if (cur_mode == WIFI_OFF) { return; }
+
+  // Range ESP32  : 2dBm - 20dBm
+  // Range ESP8266: 0dBm - 20.5dBm
+  int max_tx_pwr = MAX_TX_PWR_DBM_11b;
+  int threshold = WIFI_SENSITIVITY_n;
+  int phy_mode = WiFi.getPhyMode();
+  switch (phy_mode) {
+    case 1:                  // 11b (WIFI_PHY_MODE_11B)
+      threshold = WIFI_SENSITIVITY_11b;
+      if (max_tx_pwr > MAX_TX_PWR_DBM_11b) max_tx_pwr = MAX_TX_PWR_DBM_11b;
+      break;
+    case 2:                  // 11bg (WIFI_PHY_MODE_11G)
+      threshold = WIFI_SENSITIVITY_54g;
+      if (max_tx_pwr > MAX_TX_PWR_DBM_54g) max_tx_pwr = MAX_TX_PWR_DBM_54g;
+      break;
+    case 3:                  // 11bgn (WIFI_PHY_MODE_11N)
+      threshold = WIFI_SENSITIVITY_n;
+      if (max_tx_pwr > MAX_TX_PWR_DBM_n) max_tx_pwr = MAX_TX_PWR_DBM_n;
+      break;
+  }
+  threshold += 30;           // Margin in dBm * 10 on top of threshold
+
+  // Assume AP sends with max set by ETSI standard.
+  // 2.4 GHz: 100 mWatt (20 dBm)
+  // US and some other countries allow 1000 mW (30 dBm)
+  int rssi = WiFi.RSSI() * 10;
+  int newrssi = rssi - 200;  // We cannot send with over 20 dBm, thus it makes no sense to force higher TX power all the time.
+
+  int min_tx_pwr = 0;
+  if (newrssi < threshold) {
+    min_tx_pwr = threshold - newrssi;
+  }
+  if (min_tx_pwr > max_tx_pwr) {
+    min_tx_pwr = max_tx_pwr;
+  }
+  WiFi.setOutputPower((float)min_tx_pwr / 10);
+  delay(Wifi.last_tx_pwr < min_tx_pwr);  // If increase the TX power, give power supply of the unit some rest
+/*
+  if (Wifi.last_tx_pwr != min_tx_pwr) {
+    AddLog(LOG_LEVEL_DEBUG, PSTR("WIF: TX power %d, Sensitivity %d, RSSI %d"), min_tx_pwr / 10, threshold / 10, rssi / 10);
+  }
+*/
+  Wifi.last_tx_pwr = min_tx_pwr;
 }
 
 /*
@@ -1021,7 +1090,7 @@ void WifiConnect(void)
   }
 #endif // ESP32
   WifiSetState(0);
-  WifiSetOutputPower();
+//  WifiSetOutputPower();
 
 //#ifdef ESP8266
   // https://github.com/arendst/Tasmota/issues/16061#issuecomment-1216970170
@@ -1196,7 +1265,7 @@ bool WifiHostByName(const char* aHostname, IPAddress& aResult) {
   if (success) {
     // Host name resolved
     if (0xFFFFFFFF != (uint32_t)aResult) {
-      AddLog(LOG_LEVEL_DEBUG, PSTR(D_LOG_WIFI "DNS resolved '%s' (%s) in %i ms"), aHostname, aResult.toString().c_str(), dns_end - dns_start);
+      AddLog(LOG_LEVEL_DEBUG_MORE, PSTR(D_LOG_WIFI "DNS resolved '%s' (%s) in %i ms"), aHostname, aResult.toString().c_str(), dns_end - dns_start);
       return true;
     }
   }
@@ -1254,13 +1323,14 @@ uint64_t WifiGetNtp(void) {
 
   IPAddress time_server_ip;
 
-  char fallback_ntp_server[16];
-  snprintf_P(fallback_ntp_server, sizeof(fallback_ntp_server), PSTR("%d.pool.ntp.org"), random(0,3));
+  char fallback_ntp_server[2][32];
+  ext_snprintf_P(fallback_ntp_server[0], sizeof(fallback_ntp_server[0]), PSTR("%_I"), Settings->ipv4_address[1]);  // #17984
+  ext_snprintf_P(fallback_ntp_server[1], sizeof(fallback_ntp_server[1]), PSTR("%d.pool.ntp.org"), random(0,3));
 
   char* ntp_server;
-  for (uint32_t i = 0; i <= MAX_NTP_SERVERS; i++) {
-    if (ntp_server_id > MAX_NTP_SERVERS) { ntp_server_id = 0; }
-    ntp_server = (ntp_server_id < MAX_NTP_SERVERS) ? SettingsText(SET_NTPSERVER1 + ntp_server_id) : fallback_ntp_server;
+  for (uint32_t i = 0; i < MAX_NTP_SERVERS +2; i++) {
+    if (ntp_server_id >= MAX_NTP_SERVERS +2) { ntp_server_id = 0; }
+    ntp_server = (ntp_server_id < MAX_NTP_SERVERS) ? SettingsText(SET_NTPSERVER1 + ntp_server_id) : fallback_ntp_server[ntp_server_id - MAX_NTP_SERVERS];
     if (strlen(ntp_server)) {
       break;
     }

@@ -264,9 +264,6 @@ const char HTTP_MSG_SLIDER_GRADIENT[] PROGMEM =
   "<div id='%s' class='r' style='background-image:linear-gradient(to right,%s,%s);'>"
   "<input id='sl%d' type='range' min='%d' max='%d' value='%d' onchange='lc(\"%c\",%d,value)'>"
   "</div>";
-const char HTTP_MSG_SLIDER_SHUTTER[] PROGMEM =
-  "<div><span class='p'>" D_CLOSE "</span><span class='q'>" D_OPEN "</span></div>"
-  "<div><input type='range' min='0' max='100' value='%d' onchange='lc(\"u\",%d,value)'></div>";
 
 const char HTTP_MSG_RSTRT[] PROGMEM =
   "<br><div style='text-align:center;'>" D_DEVICE_WILL_RESTART "</div><br>";
@@ -1229,13 +1226,6 @@ void HandleRoot(void)
       }  // Settings->flag3.pwm_multi_channels
     }
 #endif // USE_LIGHT
-#ifdef USE_SHUTTER
-    if (Settings->flag3.shutter_mode) {  // SetOption80 - Enable shutter support
-      for (uint32_t i = 0; i < TasmotaGlobal.shutters_present; i++) {
-        WSContentSend_P(HTTP_MSG_SLIDER_SHUTTER, Settings->shutter_position[i], i+1);
-      }
-    }
-#endif  // USE_SHUTTER
     WSContentSend_P(HTTP_TABLE100);
     WSContentSend_P(PSTR("<tr>"));
 #ifdef USE_SONOFF_IFAN
@@ -1258,7 +1248,7 @@ void HandleRoot(void)
         int32_t ShutterWebButton;
         if (ShutterWebButton = IsShutterWebButton(idx)) {
           WSContentSend_P(HTTP_DEVICE_CONTROL, 100 / cols, idx,
-            (set_button) ? SettingsText(SET_BUTTON1 + idx -1) : ((Settings->shutter_options[abs(ShutterWebButton)-1] & 2) /* is locked */ ? "-" : ((Settings->shutter_options[abs(ShutterWebButton)-1] & 8) /* invert web buttons */ ? ((ShutterWebButton>0) ? "&#9660;" : "&#9650;") : ((ShutterWebButton>0) ? "&#9650;" : "&#9660;"))),
+            (set_button) ? SettingsText(SET_BUTTON1 + idx -1) : ((ShutterGetOptions(abs(ShutterWebButton)-1) & 2) /* is locked */ ? "-" : ((Settings->shutter_options[abs(ShutterWebButton)-1] & 8) /* invert web buttons */ ? ((ShutterWebButton>0) ? "&#9660;" : "&#9650;") : ((ShutterWebButton>0) ? "&#9650;" : "&#9660;"))),
             "");
         } else {
 #endif  // USE_SHUTTER
@@ -1410,10 +1400,12 @@ bool HandleRootStatusRefresh(void)
 #endif  // USE_LIGHT
 #ifdef USE_SHUTTER
   for (uint32_t j = 1; j <= TasmotaGlobal.shutters_present; j++) {
+    uint8_t percent;
     snprintf_P(webindex, sizeof(webindex), PSTR("u%d"), j);
     WebGetArg(webindex, tmp, sizeof(tmp));  // 0 - 100 percent
+    percent = atoi(tmp);
     if (strlen(tmp)) {
-      snprintf_P(svalue, sizeof(svalue), PSTR("ShutterPosition%d %s"), j, tmp);
+      snprintf_P(svalue, sizeof(svalue), PSTR("ShutterPosition%d %d"), j, (ShutterGetOptions(j-1) & 1) ? 100 - percent : percent);
       ExecuteWebCommand(svalue);
     }
   }
@@ -1482,9 +1474,9 @@ int32_t IsShutterWebButton(uint32_t idx) {
   /* 0: Not a shutter, 1..4: shutter up idx, -1..-4: shutter down idx */
   int32_t ShutterWebButton = 0;
   if (Settings->flag3.shutter_mode) {  // SetOption80 - Enable shutter support
-    for (uint32_t i = 0; i < MAX_SHUTTERS; i++) {
-      if (Settings->shutter_startrelay[i] && ((Settings->shutter_startrelay[i] == idx) || (Settings->shutter_startrelay[i] == (idx-1)))) {
-        ShutterWebButton = (Settings->shutter_startrelay[i] == idx) ? (i+1): (-1-i);
+    for (uint32_t i = 0; i < TasmotaGlobal.shutters_present ; i++) {
+      if (ShutterGetStartRelay(i) && ((ShutterGetStartRelay(i) == idx) || (ShutterGetStartRelay(i) == (idx-1)))) {
+        ShutterWebButton = (ShutterGetStartRelay(i) == idx) ? (i+1): (-1-i);
         break;
       }
     }
@@ -2349,7 +2341,7 @@ void HandleInformation(void)
   }
   if (Settings->flag4.network_wifi) {
     int32_t rssi = WiFi.RSSI();
-    WSContentSend_P(PSTR("}1" D_AP "%d " D_SSID " (" D_RSSI ")}2%s (%d%%, %d dBm) 11%c"), Settings->sta_active +1, HtmlEscape(SettingsText(SET_STASSID1 + Settings->sta_active)).c_str(), WifiGetRssiAsQuality(rssi), rssi, pgm_read_byte(&kWifiPhyMode[WiFi.getPhyMode() & 0x3]) );
+    WSContentSend_P(PSTR("}1" D_AP "%d " D_SSID " (" D_RSSI ")}2%s %d (%d%%, %d dBm) 11%c"), Settings->sta_active +1, HtmlEscape(SettingsText(SET_STASSID1 + Settings->sta_active)).c_str(), WiFi.channel(), WifiGetRssiAsQuality(rssi), rssi, pgm_read_byte(&kWifiPhyMode[WiFi.getPhyMode() & 0x3]) );
     WSContentSend_P(PSTR("}1" D_HOSTNAME "}2%s%s"), TasmotaGlobal.hostname, (Mdns.begun) ? PSTR(".local") : "");
 #ifdef USE_IPV6
     String ipv6_addr = WifiGetIPv6Str();
@@ -2466,7 +2458,11 @@ void HandleInformation(void)
   WSContentSend_P(PSTR("}1" D_PROGRAM_SIZE "}2%d KB"), ESP_getSketchSize() / 1024);
   WSContentSend_P(PSTR("}1" D_FREE_PROGRAM_SPACE "}2%d KB"), ESP_getFreeSketchSpace() / 1024);
 #ifdef ESP32
+#ifdef USE_GT911
+  WSContentSend_PD(PSTR("}1" D_FREE_MEMORY "}2%1_f KB"), &freemem);
+#else
   WSContentSend_PD(PSTR("}1" D_FREE_MEMORY "}2%1_f KB (" D_FRAGMENTATION " %d%%)"), &freemem, ESP_getHeapFragmentation());
+#endif // USE_GT911
   if (UsePSRAM()) {
     WSContentSend_P(PSTR("}1" D_PSR_MAX_MEMORY "}2%d KB"), ESP.getPsramSize() / 1024);
     WSContentSend_P(PSTR("}1" D_PSR_FREE_MEMORY "}2%d KB"), ESP.getFreePsram() / 1024);
@@ -2508,9 +2504,13 @@ void HandleInformation(void)
     }
   }
   esp_partition_iterator_release(it);
-#else // ESP32
+#else   // not ESP32
   WSContentSend_PD(PSTR("}1" D_FREE_MEMORY "}2%1_f KB"), &freemem);
-#endif // ESP32
+#ifdef USE_UFILESYS
+  WSContentSend_P(PSTR("}1}2&nbsp;"));  // Empty line
+  WSContentSend_P(PSTR("}1" D_FILE_SYSTEM_SIZE "}2%d KB"), UfsSize());
+#endif  // USE_UFILESYS
+#endif  // ESP32
   WSContentSend_P(PSTR("</td></tr></table>"));
 
   WSContentSend_P(HTTP_SCRIPT_INFO_END);
@@ -2670,11 +2670,6 @@ void HandleUploadDone(void) {
   WSContentStop();
 }
 
-#if defined(USE_BLE_ESP32) || defined(USE_MI_ESP32)
-  // declare the fn
-  int ExtStopBLE();
-#endif
-
 void UploadServices(uint32_t start_service) {
   if (Web.upload_services_stopped != start_service) { return; }
   Web.upload_services_stopped = !start_service;
@@ -2685,31 +2680,11 @@ void UploadServices(uint32_t start_service) {
 /*
     MqttRetryCounter(0);
 */
-#ifdef USE_ARILUX_RF
-    AriluxRfInit();
-#endif  // USE_ARILUX_RF
-#ifdef USE_COUNTER
-    CounterInterruptDisable(false);
-#endif  // USE_COUNTER
-#ifdef USE_EMULATION
-    UdpConnect();
-#endif  // USE_EMULATION
-
+    AllowInterrupts(1);
   } else {
 //    AddLog(LOG_LEVEL_DEBUG, PSTR("UPL: Services disabled"));
 
-#ifdef USE_BLE_ESP32
-    ExtStopBLE();
-#endif
-#ifdef USE_EMULATION
-    UdpDisconnect();
-#endif  // USE_EMULATION
-#ifdef USE_COUNTER
-    CounterInterruptDisable(true);     // Prevent OTA failures on 100Hz counter interrupts
-#endif  // USE_COUNTER
-#ifdef USE_ARILUX_RF
-    AriluxRfDisable();                 // Prevent restart exception on Arilux Interrupt routine
-#endif  // USE_ARILUX_RF
+    AllowInterrupts(0);
 /*
     MqttRetryCounter(60);
     if (Settings->flag.mqtt_enabled) {  // SetOption3 - Enable MQTT
@@ -3089,7 +3064,8 @@ void HandleHttpCommand(void)
       if (JSON) {  // Is it a JSON message (and not only [15:26:08 MQT: stat/wemos5/POWER = O])
         if (cflg) { WSContentSend_P(PSTR(",")); }
         uint32_t JSONlen = len - (JSON - line) -3;
-        WSContentSend(JSON +1, JSONlen);
+        for( ++JSON ; JSONlen && JSON[JSONlen] != '}' ; JSONlen-- );
+        WSContentSend(JSON, JSONlen);
         cflg = true;
       }
     }
@@ -3209,7 +3185,7 @@ bool CaptivePortal(void)
   if ((WifiIsInManagerMode()) && !ValidIpAddress(Webserver->hostHeader().c_str())) {
     AddLog(LOG_LEVEL_DEBUG, PSTR(D_LOG_HTTP D_REDIRECTED));
 
-    Webserver->sendHeader(F("Location"), String(F("http://")) + Webserver->client().localIP().toString(), true);
+    Webserver->sendHeader(F("Location"), String(F("http://")) + IPGetListeningAddressStr(), true);
     WSSend(302, CT_PLAIN, "");  // Empty content inhibits Content-length header so we have to close the socket ourselves.
     Webserver->client().stop();  // Stop is needed because we sent no content length
     return true;
@@ -3264,8 +3240,7 @@ int WebSend(char *buffer)
   return status;
 }
 
-int WebQuery(char *buffer)
-{
+int WebQuery(char *buffer) {
   // http://192.168.1.1/path GET                                         -> Sends HTTP GET http://192.168.1.1/path
   // http://192.168.1.1/path POST {"some":"message"}                     -> Sends HTTP POST to http://192.168.1.1/path with body {"some":"message"}
   // http://192.168.1.1/path PUT [Autorization: Bearer abcdxyz] potato   -> Sends HTTP PUT to http://192.168.1.1/path with authorization header and body "potato"
@@ -3368,8 +3343,7 @@ int WebQuery(char *buffer)
 }
 
 #ifdef USE_WEBGETCONFIG
-int WebGetConfig(char *buffer)
-{
+int WebGetConfig(char *buffer) {
   // http://user:password@server:port/path/%id%.dmp  : %id% will be expanded to MAC address
 
   int status = WEBCMND_WRONG_PARAMETERS;
@@ -3382,7 +3356,7 @@ int WebGetConfig(char *buffer)
 
 #if defined(ESP32) && defined(USE_WEBCLIENT_HTTPS)
   HTTPClientLight http;
-  if (http.begin(UrlEncode(url))) {  // UrlEncode(url) = |http://192.168.178.86/cm?cmnd=POWER1%20ON|
+  if (http.begin(UrlEncode(url))) {         // UrlEncode(url) = |http://192.168.178.86/cm?cmnd=POWER1%20ON|
 #else // HTTP only
   WiFiClient http_client;
   HTTPClient http;
@@ -3627,8 +3601,7 @@ void CmndWebQuery(void)
 }
 
 #ifdef USE_WEBGETCONFIG
-void CmndWebGetConfig(void)
-{
+void CmndWebGetConfig(void) {
   // WebGetConfig http://myserver:8000/tasmota/conf/%id%.dmp where %id% is expanded to device mac address
   // WebGetConfig http://myserver:8000/tasmota/conf/Config_demo_9.5.0.8.dmp
   if (XdrvMailbox.data_len > 0) {
@@ -3656,10 +3629,9 @@ void CmndWebColor(void)
 #endif // FIRMWARE_MINIMAL
     }
   }
-  Response_P(PSTR("{\"" D_CMND_WEBCOLOR "\":["));
+  Response_P(PSTR("{\"%s\":["), XdrvMailbox.command);
   for (uint32_t i = 0; i < COL_LAST; i++) {
-    if (i) { ResponseAppend_P(PSTR(",")); }
-    ResponseAppend_P(PSTR("\"#%06x\""), WebColor(i));
+    ResponseAppend_P(PSTR("%s\"#%06x\""), (i>0)?",":"", WebColor(i));
   }
   ResponseAppend_P(PSTR("]}"));
 }
@@ -3722,11 +3694,12 @@ bool Xdrv01(uint32_t function)
       if (Wifi.wifi_test_counter) {
         Wifi.wifi_test_counter--;
         AddLog(LOG_LEVEL_DEBUG, PSTR(D_LOG_WIFI D_TRYING_TO_CONNECT " %s"), SettingsText(SET_STASSID1));
-        if (WifiHasIP()) {            // Got IP - Connection Established
+        IPAddress local_ip;
+        if (WifiGetIP(&local_ip, true)) {            // Got IP - Connection Established (exclude AP address)
           Wifi.wifi_test_AP_TIMEOUT = false;
           Wifi.wifi_test_counter = 0;
           Wifi.wifiTest = WIFI_TEST_FINISHED;
-          AddLog(LOG_LEVEL_INFO, PSTR(D_LOG_WIFI D_CMND_SSID " %s: " D_CONNECTED " - " D_IP_ADDRESS " %s"), SettingsText(Wifi.wifi_Test_Save_SSID2 ? SET_STASSID2 : SET_STASSID1), WiFi.localIP().toString().c_str());
+          AddLog(LOG_LEVEL_INFO, PSTR(D_LOG_WIFI D_CMND_SSID " %s: " D_CONNECTED " - " D_IP_ADDRESS " %s"), SettingsText(Wifi.wifi_Test_Save_SSID2 ? SET_STASSID2 : SET_STASSID1), local_ip.toString().c_str());
 //          TasmotaGlobal.blinks = 255;                    // Signal wifi connection with blinks
           if (MAX_WIFI_OPTION != Wifi.old_wificonfig) {
             TasmotaGlobal.wifi_state_flag = Settings->sta_config = Wifi.old_wificonfig;
