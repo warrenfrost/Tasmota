@@ -51,3 +51,17 @@ Rule1 on Switch1#state=1 do Backlog Publish cmnd/tasmota_EEA51B/power on; RuleTi
 Living Room TV Bias
 
 Set D1 Mini module as a Generic (18) - D4 GPIO2 P9813 Clk, Rx GPIO3 P9813 Dat
+
+Soniq TV (garage) 
+
+21.748 CMD: rule1
+17:04:21.756 MQT: stat/tasmota_45AD5B/RESULT = {"Rule1":{"State":"ON","Once":"OFF","StopOnError":"OFF","Length":176,"Free":335,"Rules":"ON IrReceived#Data=0x00FDB04F DO backlog delay 20; IRsend {\"Protocol\":\"NEC\",\"Bits\":32,\"Data\":0x4EBB708F}; delay 300; IRsend {\"Protocol\":\"NEC\",\"Bits\":32,\"Data\":0x00ff00ff} ENDON"}}
+17:04:25.086 MQT: tele/tasmota_45AD5B/STATE = {"Time":"2023-10-28T17:04:25","Uptime":"0T00:05:11","UptimeSec":311,"Heap":23,"SleepMode":"Dynamic","Sleep":50,"LoadAvg":23,"MqttCount":1,"POWER1":"OFF","POWER2":"OFF","Wifi":{"AP":1,"SSId":"Applebum","BSSId":"C8:7F:54:72:72:58","Channel":1,"Mode":"11n","RSSI":52,"Signal":-74,"LinkCount":1,"Downtime":"0T00:00:06"}}
+17:04:35.110 MQT: tele/tasmota_45AD5B/STATE = {"Time":"2023-10-28T17:04:35","Uptime":"0T00:05:21","UptimeSec":321,"Heap":23,"SleepMode":"Dynamic","Sleep":50,"LoadAvg":19,"MqttCount":1,"POWER1":"OFF","POWER2":"OFF","Wifi":{"AP":1,"SSId":"Applebum","BSSId":"C8:7F:54:72:72:58","Channel":1,"Mode":"11n","RSSI":52,"Signal":-74,"LinkCount":1,"Downtime":"0T00:00:06"}}
+
+
+rule 1 
+ON IrReceived#Data=0x00FDB04F DO backlog delay 15; IRsend {"Protocol":"NEC","Bits":32,"Data":0x4EBB708F}; delay 300; IRsend {"Protocol":"NEC","Bits":32,"Data":0x00ff00ff} ENDON  # power on/off with delayed home key (go fullscreen)
+ON IrReceived#Data=0x00FD22DD DO IRsend {"Protocol":"NEC","Bits":32,"Data":0x4EBB926D} ENDON  # volume up
+ON IrReceived#Data=0x00FDC23D DO IRsend {"Protocol":"NEC","Bits":32,"Data":0x4EBBC23D} ENDON  # volume down
+ON IrReceived#Data=0x00FD04FB DO IRsend {"Protocol":"NEC","Bits":32,"Data":0x00ff00ff} ENDON  # home key
