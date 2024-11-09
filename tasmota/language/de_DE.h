@@ -28,7 +28,7 @@
  * Use online command StateText to translate ON, OFF, HOLD and TOGGLE.
  * Use online command Prefix to translate cmnd, stat and tele.
  *
- * Updated until v13.2.0.2 - Last update 16.11.2023
+ * Updated until v14.1.0.4 - Last update 28.07.2024
 \*********************************************************************/
 
 //#define LANGUAGE_MODULE_NAME         // Enable to display "Module Generic" (ie Spanish), Disable to display "Generic Module" (ie English)
@@ -51,12 +51,13 @@
 #define D_DECIMAL_SEPARATOR ","
 
 // Common
-#define D_ABSOLUTE_HUMIDITY "Abs. Feuchtigkeit"
+#define D_ABSOLUTE_HUMIDITY "Abs․ Feuchtigkeit"
 #define D_ADMIN "Admin"
 #define D_AIR_QUALITY "Luftqualität"
 #define D_AP "AP"                    // Access Point
 #define D_AS "als"
 #define D_AUTO "AUTO"
+#define D_BATTERY "Batterie"
 #define D_BATT "Batt"                // Short for Battery
 #define D_BATTERY_CHARGE "Ladung"    // Battery charge in %
 #define D_BLINK "Blinken"
@@ -75,6 +76,7 @@
 #define D_COMMAND "Befehl"
 #define D_CONNECTED "verbunden"
 #define D_CORS_DOMAIN "CORS Domain"
+#define D_COLOR "Color"
 #define D_COUNT "Anzahl"             // used as a noun throughout
 #define D_COUNTER "Zähler"
 #define D_CT_POWER "CT Power"
@@ -85,9 +87,6 @@
 #define D_DEBUG "debug"
 #define D_DEWPOINT "Taupunkt"
 #define D_DISABLED "deaktiviert"
-#define D_MOVING_DISTANCE "Abstand bewegt"
-#define D_STATIC_DISTANCE "Abstand fix"
-#define D_DETECT_DISTANCE "Abstandsfeststellung"
 #define D_DISTANCE "Abstand"
 #define D_DNS_SERVER "DNS-Server"
 #define D_DO "gelöster Sauerstoff"
@@ -107,7 +106,7 @@
 #define D_FILE "Datei"
 #define D_FILE_SYSTEM_SIZE "Dateisystemgröße"
 #define D_FLOW_RATE "Durchflussmenge"
-#define D_FRAGMENTATION "frag."      // Lower case abbreviated version of fragmentation used in "memory fragmentation"
+#define D_FRAGMENTATION "frag․"      // Lower case abbreviated version of fragmentation used in "memory fragmentation"
 #define D_FRAME_RATE "Frame Rate"
 #define D_FREE_MEMORY "Freier Arbeitsspeicher"
 #define D_PSR_MAX_MEMORY "PS-RAM Speicher"
@@ -118,6 +117,7 @@
 #define D_GROUP "Gruppe"
 #define D_HOST "Host"
 #define D_HALL_EFFECT "Hall Effekt"
+#define D_HEATINDEX "Hitzeindex"
 #define D_HOSTNAME "Hostname"
 #define D_HUMIDITY "Feuchtigkeit"
 #define D_ILLUMINANCE "Beleuchtungsstärke"
@@ -158,7 +158,7 @@
 #define D_PRESSURE "Luftdruck"
 #define D_PRESSUREATSEALEVEL "Luftdruck auf Meereshöhe"
 #define D_PROGRAM_FLASH_SIZE "Flash nutzbar"
-#define D_PROGRAM_SIZE "Größe Programm"
+#define D_PROGRAM_SIZE "Programmgröße"
 #define D_PROJECT "Projekt"
 #define D_RAIN "Regen"
 #define D_RANGE "Bereich"
@@ -176,7 +176,7 @@
 #define D_STOP "Stop"
 #define D_SUBNET_MASK "Subnetzmaske"
 #define D_SUBSCRIBE_TO "abonniere"
-#define D_UNSUBSCRIBE_FROM "löse abo. von"
+#define D_UNSUBSCRIBE_FROM "löse Abo․ von"
 #define D_SUCCESSFUL "erfolgreich"
 #define D_SUNRISE "Sonnenaufgang"
 #define D_SUNSET "Sonnenuntergang"
@@ -215,6 +215,7 @@
 #define D_WEB_SERVER "Webserver"
 #define D_SOC "Ladestatus"
 #define D_SOH "Gesundheitsstatus"
+#define D_WATER_DEPTH "Wassertiefe"
 
 // tasmota.ino
 #define D_WARNING_MINIMAL_VERSION "ACHTUNG: Diese Version unterstützt keine persistenten Einstellungen"
@@ -230,7 +231,7 @@
 
 // support.ino
 #define D_OSWATCH "osWatch"
-#define D_BLOCKED_LOOP "Schleife blockiert."
+#define D_BLOCKED_LOOP "Schleife blockiert"
 #define D_WPS_FAILED_WITH_STATUS "WPS fehlgeschlagen mit Status"
 #define D_ACTIVE_FOR_3_MINUTES "aktiv für 3 Minuten"
 #define D_FAILED_TO_START "Starten fehlgeschlagen"
@@ -241,9 +242,9 @@
 #define D_CONNECT_FAILED_AP_NOT_REACHED "Verbindung fehlgeschlagen, da AP nicht erreicht werden konnte"
 #define D_CONNECT_FAILED_WRONG_PASSWORD "Verbindung fehlgeschlagen"
 #define D_CONNECT_FAILED_AP_TIMEOUT "Verbindung fehlgeschlagen, da der AP nicht antwortet (timeout)"
-#define D_ATTEMPTING_CONNECTION "Verbindungsversuch..."
-#define D_CHECKING_CONNECTION "Prüfe Verbindung..."
-#define D_QUERY_DONE "Suchanfrage abgeschlossen. MQTT-Services gefunden"
+#define D_ATTEMPTING_CONNECTION "Verbindungsversuch…"
+#define D_CHECKING_CONNECTION "Prüfe Verbindung…"
+#define D_QUERY_DONE "Suche abgeschlossen․ MQTT-Services gefunden"
 #define D_MQTT_SERVICE_FOUND "MQTT-Service gefunden bei"
 #define D_FOUND_AT "gefunden bei"
 #define D_SYSLOG_HOST_NOT_FOUND "Syslog-Host nicht gefunden"
@@ -274,16 +275,17 @@
 #define D_CONFIGURATION "Einstellungen"
 #define D_INFORMATION "Informationen"
 #define D_FIRMWARE_UPGRADE "Firmware Update"
-#define D_MANAGEMENT "Konsolen"
+#define D_MANAGEMENT "Werkzeuge"
+#define D_GPIO_VIEWER "GPIO Viewer"
 #define D_CONSOLE "Konsole"
 #define D_CONFIRM_RESTART "Wirklich neustarten?"
 
-#define D_CONFIGURE_MODULE "Gerät konfigurieren"
-#define D_CONFIGURE_WIFI "WLAN konfigurieren"
-#define D_CONFIGURE_MQTT "MQTT konfigurieren"
-#define D_CONFIGURE_DOMOTICZ "Domoticz konfigurieren"
-#define D_CONFIGURE_LOGGING "Logging konfigurieren"
-#define D_CONFIGURE_OTHER "Sonstige Konfiguration"
+#define D_CONFIGURE_MODULE "Geräteeinstellungen"
+#define D_CONFIGURE_WIFI "WLAN-Einstellungen"
+#define D_CONFIGURE_MQTT "MQTT-Einstellungen"
+#define D_CONFIGURE_DOMOTICZ "Domoticz-Einstellungen"
+#define D_CONFIGURE_LOGGING "Logging-Einstellungen"
+#define D_CONFIGURE_OTHER "Weitere Einstellungen"
 #define D_CONFIRM_RESET_CONFIGURATION "Zurücksetzen der Konfiguration bestätigen"
 #define D_RESET_CONFIGURATION "Konfiguration zurücksetzen"
 #define D_BACKUP_CONFIGURATION "Konfiguration sichern"
@@ -322,7 +324,7 @@
 #define D_SHOW_MORE_OPTIONS "Mehr Optionen"
 #define D_CHECK_CREDENTIALS "Bitte SSID/Passwort überprüfen"
 #define D_SUCCESSFUL_WIFI_CONNECTION "mit Wifi verbunden"
-#define D_NOW_YOU_CAN_CLOSE_THIS_WINDOW "Fenster kann geschlossen werden"
+#define D_NOW_YOU_CAN_CLOSE_THIS_WINDOW "Das Fenster kann geschlossen werden"
 #define D_REDIRECTING_TO_NEW_IP "Umleitung zur neuen Geräte IP-Adresse"
 
 #define D_MQTT_PARAMETERS "MQTT-Einstellungen"
@@ -339,7 +341,7 @@
 #define D_SYSLOG_PORT "Syslog Port"
 #define D_TELEMETRY_PERIOD "Telemetrieperiode"
 
-#define D_OTHER_PARAMETERS "Sonstige Einstellungen"
+#define D_OTHER_PARAMETERS "Weitere Einstellungen"
 #define D_TEMPLATE "Vorlage"
 #define D_ACTIVATE "Aktivieren"
 #define D_DEVICE_NAME "Gerätename"
@@ -348,7 +350,7 @@
 #define D_MQTT_TLS_ENABLE "MQTT TLS"
 #define D_HTTP_API "HTTP API"
 #define D_HTTP_API_ENABLE "HTTP API aktivieren"
-#define D_FRIENDLY_NAME "Name [Friendly Name]"
+#define D_FRIENDLY_NAME "Friendly Name"
 #define D_BELKIN_WEMO "Belkin WeMo"
 #define D_HUE_BRIDGE "Hue Bridge"
 #define D_SINGLE_DEVICE "Einzelnes Gerät"
@@ -397,9 +399,9 @@
 #define D_UPLOAD_ERR_1 "Keine Datei ausgewählt"
 #define D_UPLOAD_ERR_2 "Nicht genug Speicherplatz"
 #define D_UPLOAD_ERR_3 "Falsche Dateisignatur"
-#define D_UPLOAD_ERR_4 "Datei überschreitet vorhdn. Flashspeicher"
+#define D_UPLOAD_ERR_4 "Datei überschreitet vorhdn․ Flashspeicher"
 #define D_UPLOAD_ERR_5 "Upload Buffer Vergleich weicht ab"
-#define D_UPLOAD_ERR_6 "Upload fehlgeschlagen. Aktiviere logging 3"
+#define D_UPLOAD_ERR_6 "Upload fehlgeschlagen․ Aktiviere Logging 3"
 #define D_UPLOAD_ERR_7 "Upload abgebrochen"
 #define D_UPLOAD_ERR_8 "Datei ungültig"
 #define D_UPLOAD_ERR_9 "Datei zu groß"
@@ -408,16 +410,16 @@
 #define D_UPLOAD_ERR_12 "RF Chip beschreiben fehlgeschlagen"
 #define D_UPLOAD_ERR_13 "RF Firmware ungültig"
 #define D_UPLOAD_ERR_14 "Nicht kompatibel"
-#define D_UPLOAD_ERROR_CODE "Upload Fehler Nummer"
+#define D_UPLOAD_ERROR_CODE "Upload Fehlernummer"
 
 #define D_ENTER_COMMAND "Befehl eingeben"
 #define D_ENABLE_WEBLOG_FOR_RESPONSE "Aktivere Web Log Level 2 falls Reaktion erwartet"
 #define D_NEED_USER_AND_PASSWORD "Benötige user=<Benutzername>&password=<Passwort>"
 
 // xdrv_01_mqtt.ino
-#define D_FINGERPRINT "TLS-Fingerabdruck wird verifiziert..."
+#define D_FINGERPRINT "TLS-Fingerabdruck wird verifiziert…"
 #define D_TLS_CONNECT_FAILED_TO "TLS-Verbindung fehlgeschlagen an"
-#define D_RETRY_IN "Wiederversuch in"
+#define D_RETRY_IN "Erneuter Versuch in"
 #define D_VERIFIED "verifiziert mit Fingerabdruck"
 #define D_INSECURE "unsichere Verbindung aufgrund ungültigen Fingerabdrucks"
 #define D_CONNECT_FAILED_TO "Verbindung fehlgeschlagen aufgrund von"
@@ -443,11 +445,11 @@
 #define D_3_RESPONSE_PACKETS_SENT "3 Antwortpakete gesendet"
 
 // xdrv_07_domoticz.ino
-#define D_DOMOTICZ_PARAMETERS "Domoticz-Parameter"
+#define D_DOMOTICZ_PARAMETERS "Domoticz-Einstellungen"
 #define D_DOMOTICZ_IDX "Idx"
-#define D_DOMOTICZ_KEY_IDX "Key idx"
-#define D_DOMOTICZ_SWITCH_IDX "Switch idx"
-#define D_DOMOTICZ_SENSOR_IDX "Sensor idx"
+#define D_DOMOTICZ_KEY_IDX "Key Idx"
+#define D_DOMOTICZ_SWITCH_IDX "Switch Idx"
+#define D_DOMOTICZ_SENSOR_IDX "Sensor Idx"
   #define D_DOMOTICZ_TEMP "Temp"
   #define D_DOMOTICZ_TEMP_HUM "Temp,Hum"
   #define D_DOMOTICZ_TEMP_HUM_BARO "Temp,Hum,Baro"
@@ -458,10 +460,10 @@
   #define D_DOMOTICZ_CURRENT "Current/PM10"
   #define D_DOMOTICZ_AIRQUALITY "AirQuality"
   #define D_DOMOTICZ_P1_SMART_METER "P1SmartMeter"
-#define D_DOMOTICZ_UPDATE_TIMER "Update Zeitplan"
+#define D_DOMOTICZ_UPDATE_TIMER "Zeitplan-Update"
 
 // xdrv_09_timers.ino
-#define D_CONFIGURE_TIMER "Zeitplan konfigurieren"
+#define D_CONFIGURE_TIMER "Zeitplaneinstellungen"
 #define D_TIMER_PARAMETERS "Zeitplaneinstellungen"
 #define D_TIMER_ENABLE "Zeitpläne aktivieren"
 #define D_TIMER_ARM "Aktiv"
@@ -472,7 +474,7 @@
 #define D_TIMER_ACTION "Aktion"
 
 // xdrv_10_knx.ino
-#define D_CONFIGURE_KNX "KNX konfigurieren"
+#define D_CONFIGURE_KNX "KNX-Einstellungen"
 #define D_KNX_PARAMETERS "KNX-Parameter"
 #define D_KNX_GENERAL_CONFIG "Allgemein"
 #define D_KNX_PHYSICAL_ADDRESS "Physikalische Adresse"
@@ -488,7 +490,7 @@
 #define D_KNX_COMMAND_READ "Lesen"
 #define D_KNX_COMMAND_OTHER "Andere"
 #define D_SENT_TO "gesendet an"
-#define D_KNX_WARNING "Die Gruppenadresse (0/0/0) ist reserviert und kann nicht verwendet werden."
+#define D_KNX_WARNING "Die Gruppenadresse (0/0/0) ist reserviert und kann nicht verwendet werden"
 #define D_KNX_ENHANCEMENT "Erweiterte Kommunikation"
 #define D_KNX_TX_SLOT "KNX TX"
 #define D_KNX_RX_SLOT "KNX RX"
@@ -499,10 +501,10 @@
 #define D_ZIGBEE_PERMITJOIN_ACTIVE "Gerätekopplung erlaubt"
 #define D_ZIGBEE_MAPPING_TITLE "Tasmota Zigbee Karte"
 #define D_ZIGBEE_NOT_STARTED "Zigbee nicht gestartet"
-#define D_ZIGBEE_MAPPING_IN_PROGRESS_SEC "Karte in Erstellung (%d s. verbleibend)"
+#define D_ZIGBEE_MAPPING_IN_PROGRESS_SEC "Karte in Erstellung (%d s․ verbleibend)"
 #define D_ZIGBEE_MAPPING_NOT_PRESENT "Keine Karte"
 #define D_ZIGBEE_MAP_REFRESH "Zigbee Karte erneuern"
-#define D_ZIGBEE_MAP   "Zigbee Karte"
+#define D_ZIGBEE_MAP "Zigbee Karte"
 #define D_ZIGBEE_PERMITJOIN "Zigbee Kopplung ein"
 #define D_ZIGBEE_GENERATE_KEY "Erzeuge zufälligen Zigbee Netzwerkschlüssel"
 #define D_ZIGBEE_UNKNOWN_DEVICE "Unbekanntes Gerät"
@@ -526,12 +528,17 @@
 // xdrv_89_dali.ino
 #define D_SENSOR_DALI_RX                  "Dali RX"
 #define D_SENSOR_DALI_TX                  "Dali TX"
-#define D_CONFIGURE_DALI                  "Konfig. DALI"
+#define D_CONFIGURE_DALI                  "DALI-Einstellungen"
 
 // xdrv_03_energy.ino
 #define D_ENERGY_TODAY "Energie heute"
 #define D_ENERGY_YESTERDAY "Energie gestern"
 #define D_ENERGY_TOTAL "Energie gesamt"
+
+// xsns_100_ina3221.ino
+#define  D_UNIT_CHARGE                    "Ah"
+#define  D_CHARGE                         "Ladung"    
+#define  D_ENERGY                         "Energie"
 
 // xdrv_27_shutter.ino
 #define D_OPEN "Öffnen"
@@ -539,19 +546,20 @@
 #define D_DOMOTICZ_SHUTTER "Rollo"
 
 // xdrv_28_pcf8574.ino
-#define D_CONFIGURE_PCF8574 "Konfiguriere PCF8574"
+#define D_CONFIGURE_PCF8574 "PCF8574-Einstellungen"
 #define D_PCF8574_PARAMETERS "PCF8574 Parameter"
-#define D_INVERT_PORTS "Invertiere Ports"
+#define D_INVERT_PORTS "Ports invertieren"
 #define D_DEVICE "Gerät"
 #define D_DEVICE_INPUT "Eingang"
 #define D_DEVICE_OUTPUT "Ausgang"
 
-// xdrv_39_thermostat.ino
+// xdrv_39_thermostat.ino, xdrv_85_esp32_ble_eq3_trv.ino
 #define D_THERMOSTAT                  "Thermostat"
 #define D_THERMOSTAT_SET_POINT        "Solltemperatur"
 #define D_THERMOSTAT_SENSOR           "Aktuelle Temperatur"
 #define D_THERMOSTAT_GRADIENT         "Temperaturänderung"
 #define D_THERMOSTAT_DUTY_CYCLE       "Aussteuergrad"
+#define D_THERMOSTAT_VALVE_POSITION   "Ventilöffnung"
 #define D_THERMOSTAT_CYCLE_TIME       "Periodendauer"
 #define D_THERMOSTAT_PI_AUTOTUNE      "Auto PI-Abstimmung"
 #define D_THERMOSTAT_CONTROL_METHOD   "Reglertyp"
@@ -561,6 +569,14 @@
 #define D_THERMOSTAT_RAMP_UP_HYBRID   "Anlauf (Hybrid)"
 #define D_THERMOSTAT_PI_HYBRID        "PI (Hybrid)"
 #define D_THERMOSTAT_AUTOTUNE_HYBRID  "Autotune (Hybrid)"
+
+// xdrv_79_esp32_ble.ino
+#define D_CONFIGURE_BLE       "BLE-Einstellungen"
+#define D_BLE_PARAMETERS      "Bluetooth-Einstellungen"
+#define D_MQTT_BLE_ENABLE     "Bluetooth aktivieren"
+#define D_MQTT_BLE_ACTIVESCAN "Aktiv scannen (*)"
+#define D_BLE_DEVICES         "Erkannte Geräte"
+#define D_BLE_REMARK          "Mit (*) markierte Geräte werden nicht gespeichert."
 
 // xsns_05_ds18b20.ino
 #define D_SENSOR_BUSY "Sensor beschäftigt"
@@ -592,9 +608,9 @@
 #define D_PROXIMITY "Nähe"
 
 // xsns_32_mpu6050.ino
-#define D_AX_AXIS "Beschl. X-Achse"
-#define D_AY_AXIS "Beschl. Y-Achse"
-#define D_AZ_AXIS "Beschl. Z-Achse"
+#define D_AX_AXIS "Beschl․ X-Achse"
+#define D_AY_AXIS "Beschl․ Y-Achse"
+#define D_AZ_AXIS "Beschl․ Z-Achse"
 #define D_GX_AXIS "Gyroskop X-Achse"
 #define D_GY_AXIS "Gyroskop Y-Achse"
 #define D_GZ_AXIS "Gyroskop Z-Achse"
@@ -654,6 +670,24 @@
 #define D_SIGNALSTRENGTH "Signalstärke"
 #define D_CHIPTEMPERATURE "Chiptemperatur"
 
+// xsns_60_GPS
+#define D_LATITUDE             "Breite"
+#define D_LONGITUDE            "Länge"
+#define D_HORIZONTAL_ACCURACY  "Horizontale Genauigkeit"
+#define D_ALTITUDE             "Höhe"
+#define D_VERTICAL_ACCURACY    "Vertikale Genauigkeit"
+#define D_SPEED                "Geschwindigkeit"
+#define D_SPEED_ACCURACY       "Geschwindigkeitsgenauigkeit"
+#define D_HEADING              "Kurs"
+#define D_HEADING_ACCURACY     "Kursgenauigkeit"
+#define D_SAT_FIX              "Satelliten Fix"
+#define D_SAT_FIX_NO_FIX       "Kein Fix"
+#define D_SAT_FIX_DEAD_RECK    "Koppelnavigation"
+#define D_SAT_FIX_2D           "2D"
+#define D_SAT_FIX_3D           "3D"
+#define D_SAT_FIX_GPS_DEAD     "GPS und Koppelnavigation"
+#define D_SAT_FIX_TIME         "Nur Uhrzeit"
+
 // tasmota_template.h - keep them as short as possible to be able to fit them in GUI drop down box
 #define D_SENSOR_NONE          "None"
 #define D_SENSOR_USER          "User"
@@ -665,6 +699,8 @@
 #define D_SENSOR_DS18X20       "DS18x20"
 #define D_SENSOR_I2C_SCL       "I2C SCL"
 #define D_SENSOR_I2C_SDA       "I2C SDA"
+#define D_SENSOR_I2C_SER_TX    "I2C Ser TX"
+#define D_SENSOR_I2C_SER_RX    "I2C Ser RX"
 #define D_SENSOR_I2S_MCLK      "I2S MCLK"
 #define D_SENSOR_I2S_BCLK      "I2S BCLK"
 #define D_SENSOR_I2S_WS_IN     "I2S BCLK IN"
@@ -703,6 +739,10 @@
 #define D_SENSOR_SPI_MOSI      "SPI MOSI"
 #define D_SENSOR_SPI_CLK       "SPI CLK"
 #define D_SENSOR_SDIO_CMD      "SDIO CMD"
+#define D_GPIO_TS_SPI_CS       "TS SPI CS"
+#define D_GPIO_TS_RST          "TS RST"
+#define D_GPIO_TS_IRQ          "TS IRQ"
+#define D_SENSOR_SDIO_CMD      "SDIO CMD"
 #define D_SENSOR_SDIO_CLK      "SDIO CLK"
 #define D_SENSOR_SDIO_D0       "SDIO D0"
 #define D_SENSOR_SDIO_D1       "SDIO D1"
@@ -737,6 +777,8 @@
 #define D_SENSOR_WE517_RX      "WE517 Rx"
 #define D_SENSOR_LD2410_TX     "LD2410 Tx"
 #define D_SENSOR_LD2410_RX     "LD2410 Rx"
+#define D_SENSOR_LD2410S_TX     "LD2410S Tx"
+#define D_SENSOR_LD2410S_RX     "LD2410S Rx"
 #define D_GPIO_TM1621_CS       "TM1621 CS"
 #define D_GPIO_TM1621_WR       "TM1621 WR"
 #define D_GPIO_TM1621_RD       "TM1621 RD"
@@ -773,6 +815,15 @@
 #define D_SENSOR_MAX31855_CLK  "MX31855 CLK"
 #define D_SENSOR_MAX31855_DO   "MX31855 DO"
 #define D_SENSOR_MAX31865_CS   "MX31865 CS"
+#define D_GPIO_RN2XX3_TX       "RN2XX3 Tx"
+#define D_GPIO_RN2XX3_RX       "RN2XX3 Rx"
+#define D_GPIO_RN2XX3_RST      "RN2XX3 Rst"
+#define D_GPIO_ASR650X_TX      "ASR650x Tx"
+#define D_GPIO_ASR650X_RX      "ASR650x Rx"
+#define D_GPIO_LORA_CS         "LoRa CS"
+#define D_GPIO_LORA_RST        "LoRa Rst"
+#define D_GPIO_LORA_BUSY       "LoRa Busy"
+#define D_GPIO_LORA_DI         "LoRa DIO"    // Suffix "0","1","2"
 #define D_SENSOR_NRG_SEL       "HLWBL SEL"  // Suffix "i"
 #define D_SENSOR_NRG_CF1       "HLWBL CF1"
 #define D_SENSOR_HLW_CF        "HLW8012 CF"
@@ -784,6 +835,7 @@
 #define D_SENSOR_CSE7761_RX    "CSE7761 Rx"
 #define D_SENSOR_CSE7766_TX    "CSE7766 Tx"
 #define D_SENSOR_CSE7766_RX    "CSE7766 Rx"
+#define D_SENSOR_BL0906_RX     "BL0906 Rx"
 #define D_SENSOR_BL0939_RX     "BL0939 Rx"
 #define D_SENSOR_BL0942_RX     "BL0942 Rx"
 #define D_SENSOR_HM330X_SET    "HM330X SET"
@@ -872,6 +924,8 @@
 #define D_SENSOR_ADC_JOYSTICK  "ADC Joystick"
 #define D_SENSOR_ADC_PH        "ADC pH"
 #define D_SENSOR_ADC_MQ        "ADC MQ"
+#define D_SENSOR_ADC_VOLTAGE   "ADC Spannung"
+#define D_SENSOR_ADC_CURRENT   "ADC Strom"
 #define D_GPIO_WEBCAM_PWDN     "CAM_PWDN"
 #define D_GPIO_WEBCAM_RESET    "CAM_RESET"
 #define D_GPIO_WEBCAM_XCLK     "CAM_XCLK"
@@ -888,6 +942,7 @@
 #define D_SENSOR_ETH_PHY_MDC   "ETH MDC"
 #define D_SENSOR_ETH_PHY_MDIO  "ETH MDIO"
 #define D_SENSOR_TCP_TXD       "TCP Tx"
+#define D_SENSOR_TCP_TXD_EN    "TCP Tx En"
 #define D_SENSOR_TCP_RXD       "TCP Rx"
 #define D_SENSOR_IEM3000_TX    "iEM3000 TX"
 #define D_SENSOR_IEM3000_RX    "iEM3000 RX"
@@ -957,6 +1012,8 @@
 #define D_SENSOR_BIOPDU_PZEM016_RX "BioPDU PZEM016 Rx"
 #define D_SENSOR_BIOPDU_BIT    "BioPDU Bit"
 #define D_SENSOR_LOX_O2_RX     "LoxO2 RX"
+#define D_GPIO_MAGIC_SWITCH    "MagicSwitch"
+#define D_SENSOR_WOOLIIS_RX    "Wooliis Rx"
 
 // Units
 #define D_UNIT_AMPERE "A"
@@ -981,6 +1038,7 @@
 #define D_UNIT_LITERS "L"
 #define D_UNIT_LITERS_PER_MIN "L/m"
 #define D_UNIT_LUX "lx"
+#define D_UNIT_METER "m"
 #define D_UNIT_MICROGRAM_PER_CUBIC_METER "µg/m³"
 #define D_UNIT_MICROMETER "µm"
 #define D_UNIT_MICROSECOND "µs"
@@ -1002,7 +1060,7 @@
 #define D_UNIT_SECOND "s"
 #define D_UNIT_SECTORS "Sektoren"
 #define D_UNIT_VA "VA"
-#define D_UNIT_VAR "VAr"
+#define D_UNIT_VAR "var"
 #define D_UNIT_VOLT "V"
 #define D_UNIT_WATT "W"
 #define D_UNIT_WATTHOUR "Wh"
@@ -1024,7 +1082,7 @@
 #define D_IMPORT_REACTIVE "Importiere Blind"
 #define D_EXPORT_REACTIVE "Exportiere Blind"
 #define D_TOTAL_REACTIVE  "Total Blind"
-#define D_UNIT_KWARH      "kVArh"
+#define D_UNIT_KWARH      "kvarh"
 #define D_UNIT_ANGLE      "Grad"
 #define D_TOTAL_ACTIVE    "Total Wirk"
 #define D_RESETTABLE_TOTAL_ACTIVE    "Total Wirk (RST)"
@@ -1070,22 +1128,22 @@
 #define D_SCRIPT_UPLOAD_FILES  "Upload Dateien"
 
 //xdrv_50_filesystem.ino
-#define D_MANAGE_FILE_SYSTEM   "Verwalte Dateisystem"
+#define D_MANAGE_FILE_SYSTEM   "Dateisystem verwalten"
 #define D_FS_SIZE              "Größe"
 #define D_FS_FREE              "Frei"
 #define D_NEW_FILE             "neue-datei.txt"
-#define D_CREATE_NEW_FILE      "Datei erstellen und bearbeiten"
+#define D_CREATE_NEW_FILE      "Neue Datei erstellen"
 #define D_EDIT_FILE            "Datei bearbeiten"
-#define D_CONFIRM_FILE_DEL     "Datei löschen bestätigen"
-#define D_SHOW_HIDDEN_FILES    "Zeige versteckte Datei(en)"
+#define D_CONFIRM_FILE_DEL     "Datei wirklich löschen?"
+#define D_SHOW_HIDDEN_FILES    "Versteckte Datei(en) anzeigen"
 
 //xsns_67_as3935.ino
-#define D_AS3935_GAIN "Umgebung:"
-#define D_AS3935_ENERGY "Energie:"
-#define D_AS3935_DISTANCE "Entfernung:"
-#define D_AS3935_DISTURBER "Entstörer:"
-#define D_AS3935_VRMS "µVrms:"
-#define D_AS3935_APRX "ca.:"
+#define D_AS3935_GAIN "Umgebung"
+#define D_AS3935_ENERGY "Energie"
+#define D_AS3935_DISTANCE "Entfernung"
+#define D_AS3935_DISTURBER "Entstörer"
+#define D_AS3935_VRMS "µVrms"
+#define D_AS3935_APRX "ca․"
 #define D_AS3935_AWAY "entfernt"
 #define D_AS3935_LIGHT "Blitz"
 #define D_AS3935_OUT "ausserhalb der Reichweite"
@@ -1096,13 +1154,13 @@
 #define D_AS3935_INTNOEV "Interrupt ohne Grund!"
 #define D_AS3935_FLICKER "IRQ Pin flackert!"
 #define D_AS3935_POWEROFF "Ausgeschaltet"
-#define D_AS3935_NOMESS "lausche..."
+#define D_AS3935_NOMESS "lausche…"
 #define D_AS3935_ON "An"
 #define D_AS3935_OFF "Aus"
 #define D_AS3935_INDOORS "Indoors"
 #define D_AS3935_OUTDOORS "Outdoors"
 #define D_AS3935_CAL_FAIL "Kalibrierung fehlerhaft"
-#define D_AS3935_CAL_OK "Cap gesetzt auf:"
+#define D_AS3935_CAL_OK "Cap gesetzt auf"
 
 //xsns_68_opentherm.ino
 #define D_SENSOR_BOILER_OT_RX   "OpenTherm RX"
@@ -1114,8 +1172,8 @@
 #define D_CURRENT_TARIFF  "Aktueller Tarif"
 #define D_TARIFF          "Tarif"
 #define D_OVERLOAD        "ADPS"
-#define D_MAX_POWER       "max. Leistung"
-#define D_MAX_CURRENT     "max. Stromstärke"
+#define D_MAX_POWER       "max․ Leistung"
+#define D_MAX_CURRENT     "max․ Stromstärke"
 
 // xsns_79_as608.ino
 #define D_FP_ENROLL_PLACEFINGER "Finger auflegen"
@@ -1220,5 +1278,24 @@
 // xsns_106_gdk101.ino
 #define D_AVG_RAD_DOSE                    "durchschnittliche Strahlendosis"
 #define D_UNIT_US_H                       "µSv/h"
+
+// ixrv92_pipsolar.ino
+#define D_SENSOR_PIPSOLAR_TX             "Pipsolar TX"
+#define D_SENSOR_PIPSOLAR_RX             "Pipsolar RX"
+
+// xsns_102_ld2410.ino
+#define D_MOVING_DISTANCE "Abstand bewegt"
+#define D_STATIC_DISTANCE "Abstand fix"
+#define D_DETECT_DISTANCE "Abstandsfeststellung"
+#define D_MOVING_ENERGY_T "Bewegliches Ziel"
+#define D_STATIC_ENERGY_T "Statisches Ziel"
+#define D_LD2410_PIN_STATE "Zustand des Ausgangspins"
+#define D_LD2410_LIGHT "Lichtsensor"
+
+// xsns_115_wooliis.ino
+#define D_IMPORT                          "Import"
+#define D_EXPORT                          "Export"
+#define D_CHARGING                        "Aufladen"
+#define D_CAPACITY                        "Kapazität"
 
 #endif  // _LANGUAGE_DE_DE_H_
